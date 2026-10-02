@@ -119,6 +119,9 @@ async function launchBrowser(studentId) {
       '--metrics-recording-only',
       '--safebrowsing-disable-auto-update',
       '--no-zygote',
+      '--single-process',
+      '--disable-extensions',
+      '--js-flags=--max-old-space-size=128',
       '--mute-audio',
     ],
   });
