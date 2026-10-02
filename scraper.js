@@ -18,7 +18,7 @@
 // SERVER KABHI CAPTCHA SOLVE NAHI KARTA — sirf image app ko deta hai,
 // student padh kar text wapas bhejta hai.
 
-const puppeteer = require('puppeteer-core');
+const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
@@ -94,10 +94,11 @@ function findChromium() {
 const browsers = new Map(); // studentId -> { browser, page, lastUsed }
 
 async function launchBrowser(studentId) {
-  const executablePath = findChromium();
+  let executablePath;
+  try { executablePath = findChromium(); } catch { executablePath = undefined; }
   console.log(`[scraper] ${studentId}: Chromium launch ho raha hai...`);
   const browser = await puppeteer.launch({
-    executablePath,
+    ...(executablePath ? { executablePath } : {}),
     headless: true,
     userDataDir: profileDir(studentId),
     timeout: 60000,
