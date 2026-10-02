@@ -48,14 +48,7 @@ app.post('/register', async (req, res) => {
   // Ab check karo CAPTCHA pending hai ya nahi — sahi value bhejo
   const needCaptcha = scraper.hasPendingLogin(id);
   const c = pipeline.readCache(id);
-  if (needCaptcha) {
-    return res.json({ ok: true, captchaNeeded: true, hasData: !!c });
-  }
-  if (c) {
-    return res.json({ ok: true, captchaNeeded: false, hasData: true });
-  }
-  // Na CAPTCHA pending, na cached data — scrape fail hua, app ko error do
-  return res.status(503).json({ ok: false, reason: 'scrape-failed-no-data', captchaNeeded: false, hasData: false });
+  res.json({ ok: true, captchaNeeded: needCaptcha, hasData: !!c });
 });
 
 // Cached data: portal/server down ho to bhi last-known data milega.
@@ -106,10 +99,8 @@ app.post('/captcha/:studentId', async (req, res) => {
 });
 
 const PORT = config.port;
-
-
 app.listen(PORT, () => {
   console.log(`CU Saathi server :${PORT} par chal raha hai`);
-  // scheduler.start(); // TEST KE LIYE BAND
+  scheduler.start();
   try { require('./telegram').send('🟢 CU Saathi Server started ' + new Date().toLocaleString('en-IN')); } catch (e) {}
 });
