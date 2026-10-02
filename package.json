@@ -20,7 +20,7 @@
     "express": "^4.18.2",
     "firebase-admin": "^14.5.0",
     "node-cron": "^3.0.3",
-    "puppeteer-core": "^25.12.0",
+    "puppeteer": "^24.10.0",
     "tough-cookie": "^4.1.3"
   }
 }
