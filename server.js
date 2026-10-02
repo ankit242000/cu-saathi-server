@@ -34,12 +34,12 @@ app.post('/register', async (req, res) => {
   if (!studentId || !password) return res.status(400).json({ ok: false, reason: 'studentId+password chahiye' });
   const id = safeId(studentId);
   sessions.putStudent(id, String(password));
-  // Pehla scrape — CAPTCHA aane tak WAIT karo (max 30 sec), phir batao
+  // Pehla scrape — CAPTCHA aane tak WAIT karo (max 90 sec), phir batao
   // taaki app ko sahi captchaNeeded mile. Fire-and-forget NAHI!
   try {
     const r = await Promise.race([
       pipeline.scrapeStudent(id),
-      new Promise(resolve => setTimeout(() => resolve({ ok: false, reason: 'timeout-waiting-captcha' }), 30000))
+      new Promise(resolve => setTimeout(() => resolve({ ok: false, reason: 'timeout-waiting-captcha' }), 90000))
     ]);
     console.log(`[api] register scrape ${id}:`, r.ok ? 'OK' : r.reason);
   } catch (e) {
