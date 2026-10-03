@@ -152,6 +152,45 @@ def get_data(student_id):
         if profile and (profile.get('name') or profile.get('uid')):
             data['profile'] = profile
 
+    # Timetable — frmMyTimeTable.aspx
+    tt = client.get_page('/frmMyTimeTable.aspx')
+    if tt['ok']:
+        slots = parse_timetable(tt['html'])
+        if slots:
+            data['timetable'] = slots
+
+    # Datesheet — frmStudentDatesheet.aspx
+    ds = client.get_page('/frmStudentDatesheet.aspx')
+    if ds['ok']:
+        datesheet = parse_datesheet(ds['html'])
+        if datesheet:
+            data['datesheet'] = datesheet
+
+    # Leaves — duty, general, medical
+    leaves = {}
+    for kind, url in [('duty', '/frmStudentApplyDutyLeave.aspx'),
+                      ('general', '/frmStudentGeneralLeaveApply.aspx'),
+                      ('medical', '/frmStudentMedicalLeaveApply.aspx')]:
+        lr = client.get_page(url)
+        if lr['ok']:
+            rows = parse_leave_history(lr['html'])
+            leaves[kind] = rows
+    if leaves:
+        data['leaves'] = leaves
+
+    # Marks — frmStudentMarksView.aspx
+    mk = client.get_page('/frmStudentMarksView.aspx')
+    if mk['ok']:
+        marks = parse_marks(mk['html'])
+        if marks:
+            data['marks'] = marks
+
+    # Notices — dashboard se announcements
+    if d['ok']:
+        notices = parse_notices(d['html'])
+        if notices and (notices.get('announcements') or notices.get('importantMessage')):
+            data['notices'] = notices
+
     # scrapedAt — ISO-8601 (app isko last_sync me convert karta hai)
     from datetime import datetime, timezone
     data['scrapedAt'] = datetime.now(timezone.utc).isoformat()
@@ -259,6 +298,267 @@ def parse_profile(html):
         'currentSection': out.get('currentsection', ''),
         'programCode': out.get('programcode', ''),
     }
+
+
+def parse_timetable(html):
+    """Timetable grid ko app ke format me parse karo.
+    URL: frmMyTimeTable.aspx
+    Grid: Timing | Mon | Tue | Wed | Thu | Fri | Sat | Sun
+    Cell: "<Code>:<L/T/P>::GP-<Group>: By <Teacher>(<ID>) at <Room>"
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    slots = []
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+    def parse_cell(text):
+        t = (text or '').strip()
+        if not t:
+            return None
+        out = {'raw': t, 'code': '', 'kind': '', 'group': '',
+               'teacher': '', 'teacherId': '', 'room': ''}
+        parts = t.split(' By ')
+        left = parts[0].strip() if parts else ''
+        right = parts[1].strip() if len(parts) > 1 else ''
+        lp = left.split(':')
+        out['code'] = lp[0].strip() if len(lp) > 0 else ''
+        out['kind'] = lp[1].strip() if len(lp) > 1 else ''
+        gp = lp[3].strip() if len(lp) > 3 else ''
+        out['group'] = re.sub(r'^GP-', '', gp)
+        m = re.match(r'^(.*?)\((.*?)\)\s+at\s+(.*)$', right)
+        if m:
+            out['teacher'] = m.group(1).strip()
+            out['teacherId'] = m.group(2).strip()
+            out['room'] = m.group(3).strip()
+        else:
+            out['teacher'] = right
+        return out
+
+    for table in soup.find_all('table'):
+        thead = table.find('thead')
+        if not thead:
+            continue
+        headers = [th.get_text(strip=True) for th in thead.find_all('th')]
+        if not headers or headers[0].lower() != 'timing':
+            continue
+        tbody = table.find('tbody')
+        rows = tbody.find_all('tr') if tbody else table.find_all('tr')[1:]
+        for tr in rows:
+            tds = tr.find_all('td')
+            if len(tds) < 8:
+                continue
+            timing = tds[0].get_text(strip=True)
+            if not timing:
+                continue
+            day_map = {}
+            for i, d in enumerate(days):
+                day_map[d] = parse_cell(tds[i + 1].get_text() if len(tds) > i + 1 else '')
+            slots.append({'timing': timing, 'days': day_map})
+
+    return slots
+
+
+def parse_datesheet(html):
+    """Datesheet table ko app ke format me parse karo.
+    URL: frmStudentDatesheet.aspx
+    Columns: Exam Type | datesheettype | Course code | Course Name |
+             SlotNo | UID | New SlotNo | Exam Date | Exam Timing |
+             Exam Venue | Mode OF Exam | Error Reporting
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    rows = []
+
+    for table in soup.find_all('table'):
+        thead = table.find('thead')
+        if not thead:
+            continue
+        headers = [th.get_text(strip=True).lower() for th in thead.find_all('th')]
+        if 'exam date' not in headers:
+            continue
+        tbody = table.find('tbody')
+        trs = tbody.find_all('tr') if tbody else table.find_all('tr')[1:]
+        for tr in trs:
+            tds = [td.get_text(strip=True) for td in tr.find_all('td')]
+            if len(tds) < 12 or not tds[2]:
+                continue
+            rows.append({
+                'examType': tds[0],
+                'datesheetType': tds[1],
+                'code': tds[2],
+                'name': tds[3],
+                'slotNo': tds[4],
+                'uid': tds[5],
+                'newSlotNo': tds[6],
+                'date': tds[7],
+                'timing': tds[8],
+                'venue': tds[9],
+                'mode': tds[10],
+                'errorReporting': tds[11],
+            })
+
+    return rows
+
+
+def parse_leave_history(html):
+    """Leave history table ko app ke format me parse karo.
+    Duty/General/Medical teeno ke liye generic parser.
+    "Status" header wali table dhoondhta hai.
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    rows = []
+
+    def norm(s):
+        return re.sub(r'[:\s_]+', ' ', (s or '').strip().lower()).strip()
+
+    header_map = {
+        'dl no': 'id', 'dlno': 'id', 'id': 'id', 'leave id': 'id',
+        'application no': 'id', 'app no': 'id', 'srno': 'id', 'sr no': 'id',
+        'timing': 'timing', 'time': 'timing',
+        'category': 'category',
+        'file name': 'fileName', 'filename': 'fileName', 'document': 'fileName',
+        'file': 'fileName',
+        'leave type': 'leaveType', 'type': 'leaveType',
+        'dated': 'dated', 'date': 'dated', 'applied on': 'dated',
+        'applied date': 'dated',
+        'status': 'status',
+        'remarks': 'remarks', 'remark': 'remarks', 'reason': 'remarks',
+    }
+
+    for table in soup.find_all('table'):
+        thead = table.find('thead')
+        if not thead:
+            continue
+        headers = [norm(th.get_text()) for th in thead.find_all('th')]
+        if not headers or 'status' not in headers:
+            continue
+        col_idx = {}
+        for i, h in enumerate(headers):
+            key = header_map.get(h)
+            if key and key not in col_idx:
+                col_idx[key] = i
+        if 'status' not in col_idx or 'id' not in col_idx:
+            continue
+        tbody = table.find('tbody')
+        trs = tbody.find_all('tr') if tbody else table.find_all('tr')[1:]
+        for tr in trs:
+            if re.search(r'no record found', tr.get_text(), re.I):
+                continue
+            tds = tr.find_all('td')
+            def t(key):
+                i = col_idx.get(key)
+                return tds[i].get_text(strip=True) if i is not None and i < len(tds) else ''
+            lid = re.sub(r'\s+', ' ', t('id')).strip()
+            if not lid:
+                continue
+            rows.append({
+                'id': lid,
+                'timing': t('timing'),
+                'category': t('category'),
+                'fileName': t('fileName'),
+                'leaveType': t('leaveType'),
+                'dated': t('dated'),
+                'status': t('status'),
+                'remarks': t('remarks'),
+            })
+
+    return rows
+
+
+def parse_marks(html):
+    """Marks accordion ko app ke format me parse karo.
+    URL: frmStudentMarksView.aspx
+    Structure: jQuery UI accordion — .ui-accordion-content per subject.
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    subjects = []
+
+    def num(s):
+        try:
+            n = float(str(s or '').replace(',', ''))
+            return n if n == n else 0
+        except (ValueError, TypeError):
+            return 0
+
+    for panel in soup.find_all(class_='ui-accordion-content'):
+        hidden = panel.find('input', attrs={'type': 'hidden'})
+        code = hidden.get('value', '').strip() if hidden else ''
+        # Title: preceding h3 header
+        title = ''
+        for sib in panel.previous_siblings:
+            if getattr(sib, 'name', None) == 'h3':
+                title = sib.get_text(strip=True)
+                break
+        m = re.match(r'^(.*?)\s*\(([^)]+)\)\s*$', title)
+        if m:
+            title = m.group(1).strip()
+        exams = []
+        for tr in panel.find_all('tr'):
+            tds = tr.find_all('td')
+            if len(tds) < 3:
+                continue
+            desc = tds[0].get_text(strip=True)
+            if not desc:
+                continue
+            exams.append({
+                'desc': desc,
+                'max': num(tds[1].get_text()),
+                'obtained': num(tds[2].get_text()),
+            })
+        if not code and not exams:
+            continue
+        subjects.append({'code': code, 'title': title, 'exams': exams})
+
+    return subjects
+
+
+def parse_notices(html):
+    """Dashboard se announcements aur important message nikalo.
+    URL: StudentHome.aspx
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    out = {}
+
+    def section_body(caption):
+        for h3 in soup.find_all('h3', class_='portlet-caption'):
+            if caption.lower() in h3.get_text().lower():
+                # Next div sibling
+                for sib in h3.next_siblings:
+                    if getattr(sib, 'name', None) == 'div':
+                        return sib
+        return None
+
+    # Important Message
+    body = section_body('Important Message')
+    if body:
+        out['importantMessage'] = re.sub(r'\s+', ' ', body.get_text()).strip()
+
+    # Announcements
+    body = section_body('Announcements')
+    items = []
+    if body:
+        for h4 in body.find_all('h4'):
+            title = h4.get_text(strip=True)
+            meta = ''
+            content = ''
+            nxt = h4.find_next_sibling('p')
+            if nxt:
+                meta = nxt.get_text(strip=True)
+            nxt = h4.find_next_sibling('div')
+            if nxt:
+                content = nxt.get_text(strip=True)
+            if title:
+                items.append({'title': title, 'meta': meta, 'content': content})
+    out['announcements'] = items
+
+    return out
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
