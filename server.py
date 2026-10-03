@@ -125,12 +125,32 @@ def get_data(student_id):
     data = {'studentId': sid}
 
     # Attendance summary — app-compatible format
-    # Portal URL: frmStudentCourseWiseAttendanceSummary.aspx
-    att = client.get_page('/frmStudentCourseWiseAttendanceSummary.aspx')
+    # Portal URL: frmStudentCourseWiseAttendanceSummary.aspx?type=<token>
+    # Token dashboard se nikalna padta hai!
+    att_url = '/frmStudentCourseWiseAttendanceSummary.aspx'  # fallback
+    d = client.get_page('/StudentHome.aspx')
+    if d['ok']:
+        from bs4 import BeautifulSoup
+        import re
+        soup = BeautifulSoup(d['html'], 'html.parser')
+        for a in soup.find_all('a', href=True):
+            if 'frmStudentCourseWiseAttendanceSummary.aspx' in a['href']:
+                att_url = a['href']
+                break
+
+    att = client.get_page(att_url)
     if att['ok']:
         summary = parse_attendance_summary(att['html'])
         if summary:
             data['attendanceSummary'] = summary
+
+    # Profile — Digital ID Card ke liye
+    # Portal URL: frmStudentProfile.aspx
+    prof = client.get_page('/frmStudentProfile.aspx')
+    if prof['ok']:
+        profile = parse_profile(prof['html'])
+        if profile and (profile.get('name') or profile.get('uid')):
+            data['profile'] = profile
 
     # scrapedAt — ISO-8601 (app isko last_sync me convert karta hai)
     from datetime import datetime, timezone
@@ -191,6 +211,54 @@ def parse_attendance_summary(html):
             break  # Pehli table jisme data mila
 
     return rows
+
+
+def parse_profile(html):
+    """Student profile ko app ke format me parse karo.
+    URL: frmStudentProfile.aspx
+    Section: <h4 class="card-heading">Student Personal Information</h4>
+    followed by label | value table.
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    out = {}
+
+    for h4 in soup.find_all('h4', class_='card-heading'):
+        if 'student personal information' not in h4.get_text().lower():
+            continue
+        table = None
+        # Pehle next sibling tables dhoondho
+        for sib in h4.next_siblings:
+            if getattr(sib, 'name', None) == 'table':
+                table = sib
+                break
+        if not table:
+            # Parent me dhoondho
+            parent = h4.parent
+            if parent:
+                table = parent.find('table')
+        if not table:
+            continue
+        for tr in table.find_all('tr'):
+            tds = tr.find_all('td')
+            if len(tds) < 2:
+                continue
+            label = re.sub(r'[^a-z]+', '', tds[0].get_text(strip=True).lower())
+            value = tds[1].get_text(strip=True)
+            if label:
+                out[label] = value
+
+    return {
+        'uid': out.get('uid', ''),
+        'name': out.get('name', ''),
+        'fathersName': out.get('fathersname', ''),
+        'motherName': out.get('mothername', ''),
+        'dob': out.get('dob', ''),
+        'admissionYear': out.get('admissionyear', ''),
+        'currentSection': out.get('currentsection', ''),
+        'programCode': out.get('programcode', ''),
+    }
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
