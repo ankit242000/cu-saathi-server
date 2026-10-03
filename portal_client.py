@@ -76,7 +76,7 @@ class PortalClient:
         return {'sm': m.group(1), 'panels': panels}
 
     def submit_uid(self, uid):
-        """Step 2: UID + NEXT"""
+        """Step 2: UID + NEXT (FULL postback, async nahi!)"""
         r = self.s.get(BASE + '/', timeout=30)
         html = r.text
         self.form_action = self._get_form_action(html, r.url)
@@ -101,43 +101,31 @@ class PortalClient:
             return {'ok': False, 'reason': 'NEXT button nahi mila'}
 
         next_name = next_btn['name']
-        sm_name = self._detect_async(html)
+
+        # NOTE: NEXT button UpdatePanel me NAHI hai — FULL postback karo, async nahi!
+        # ASP.NET WebForms: __EVENTTARGET use karo button name ki jagah
+        # Sirf normal headers bhejo, X-MicrosoftAjax nahi!
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'Origin': BASE,
             'Referer': self.form_action,
         }
 
-        if sm_name:
-            panel_info = self._detect_panels(html)
-            panel_id = panel_info['panels'][0] if panel_info and panel_info['panels'] else ''
-            fields[sm_name] = f'{panel_id}|{next_name}'
-            fields['__ASYNCPOST'] = 'true'
-            headers['X-MicrosoftAjax'] = 'Delta=true'
-            headers['X-Requested-With'] = 'XMLHttpRequest'
-
-        fields[next_name] = next_btn.get('value', 'Next')
-        fields.setdefault('__EVENTTARGET', '')
-        fields.setdefault('__EVENTARGUMENT', '')
+        # WebForms postback: __EVENTTARGET=btnNext
+        fields['__EVENTTARGET'] = 'btnNext'
+        fields['__EVENTARGUMENT'] = ''
+        # Button ka name/value mat bhejo (WebForms me zaroorat nahi)
 
         r = self.s.post(self.form_action, data=fields, headers=headers, timeout=30)
         if r.status_code >= 400:
             return {'ok': False, 'reason': f'Stage 1 HTTP {r.status_code}'}
 
-        # Stage 2 fields save karo
-        if sm_name:
-            # Delta response parse karo
-            stage2_html = self._parse_delta(r.text)
-            self.stage2_fields = self._collect_fields(html)  # purane
-            new_fields = self._collect_fields(stage2_html)
-            self.stage2_fields.update(new_fields)
-            # Naya viewstate delta se
-            self.stage2_fields.update(self._parse_delta_hidden(r.text))
-        else:
-            self.stage2_fields = self._collect_fields(r.text)
+        # Stage 2 = full HTML page (async nahi)
+        self.stage2_fields = self._collect_fields(r.text)
+        self.stage2_html = r.text
+        self.form_action = self._get_form_action(r.text, r.url)
 
-        self.stage2_html = r.text if not sm_name else stage2_html
-        return {'ok': True, 'async': bool(sm_name)}
+        return {'ok': True, 'async': False}
 
     def _parse_delta(self, text):
         """Delta response se HTML nikalo"""
