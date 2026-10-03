@@ -99,8 +99,12 @@ def submit_captcha(student_id):
         if cap['ok']:
             s['captcha_image'] = cap['image']
         s['created'] = time.time()
-        return jsonify({'ok': False, 'retry': True,
-                        'reason': r['reason']})
+        resp = {'ok': False, 'retry': True,
+                'reason': r['reason']}
+        # Privacy-safe diagnostics pass through (if available)
+        if 'debug' in r:
+            resp['debug'] = r['debug']
+        return jsonify(resp)
 
     s['logged_in'] = True
     s['captcha_pending'] = False

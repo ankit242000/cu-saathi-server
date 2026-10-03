@@ -246,18 +246,31 @@ class PortalClient:
             return {'ok': False, 'reason': f'Stage 2 HTTP {r.status_code}'}
 
         body = r.text
+        # Privacy-safe diagnostics (no personal data, no HTML content)
+        debug = {
+            'http_status': r.status_code,
+            'body_len': len(body),
+            'cookie_count': len(self.s.cookies),
+            'has_studenthome': 'StudentHome.aspx' in body or 'studenthome' in body.lower(),
+            'has_landing': 'LandingPage' in body,
+            'has_login_form': 'txtUserId' in body or 'txtPassword' in body,
+            'has_captcha_img': 'captcha' in body.lower() and 'img' in body.lower(),
+            'has_error_text': 'invalid' in body.lower() or 'incorrect' in body.lower() or 'failed' in body.lower(),
+            'has_delta': '|#|' in body[:500] if len(body) > 0 else False,
+        }
         # Success check: dashboard ya redirect
-        if 'StudentHome.aspx' in body or 'studenthome' in body.lower():
-            return {'ok': True, 'html': body}
+        if debug['has_studenthome']:
+            return {'ok': True, 'html': body, 'debug': debug}
         # Delta redirect check
         if sm_name:
             try:
                 redirect = self._parse_delta_redirect(body)
                 if redirect:
-                    return {'ok': True, 'redirect': redirect}
+                    debug['delta_redirect'] = redirect[:100]  # URL path only, no personal data
+                    return {'ok': True, 'redirect': redirect, 'debug': debug}
             except:
                 pass
-        return {'ok': False, 'reason': 'Login success confirm nahi hua', 'html': body[:2000]}
+        return {'ok': False, 'reason': 'Login success confirm nahi hua', 'debug': debug}
 
     def _parse_delta_redirect(self, text):
         i = 0
