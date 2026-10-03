@@ -122,42 +122,75 @@ def get_data(student_id):
         return jsonify({'ok': False, 'reason': 'login nahi hua'}), 401
 
     client = s['client']
-    result = {'studentId': sid}
+    data = {'studentId': sid}
 
-    # Dashboard
-    d = client.get_page('/StudentHome.aspx')
-    result['dashboard_ok'] = d['ok']
+    # Attendance summary — app-compatible format
+    # Portal URL: frmStudentCourseWiseAttendanceSummary.aspx
+    att = client.get_page('/frmStudentCourseWiseAttendanceSummary.aspx')
+    if att['ok']:
+        summary = parse_attendance_summary(att['html'])
+        if summary:
+            data['attendanceSummary'] = summary
 
-    # Attendance link dhoondho
-    if d['ok']:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(d['html'], 'html.parser')
-        att_url = None
-        for a in soup.find_all('a', href=True):
-            if 'attendance' in a['href'].lower():
-                att_url = a['href']
-                break
-        if att_url:
-            a = client.get_page(att_url)
-            result['attendance_ok'] = a['ok']
-            if a['ok']:
-                # Tables nikalo
-                tables = []
-                asoup = BeautifulSoup(a['html'], 'html.parser')
-                for tbl in asoup.find_all('table'):
-                    rows = []
-                    for tr in tbl.find_all('tr'):
-                        cells = [c.get_text(strip=True) for c in tr.find_all(['td', 'th'])]
-                        if cells:
-                            rows.append(cells)
-                    if rows:
-                        tables.append({'rows': rows})
-                result['attendance_tables'] = tables
-        else:
-            result['attendance_ok'] = False
+    # scrapedAt — ISO-8601 (app isko last_sync me convert karta hai)
+    from datetime import datetime, timezone
+    data['scrapedAt'] = datetime.now(timezone.utc).isoformat()
 
     s['created'] = time.time()  # TTL refresh
-    return jsonify({'ok': True, 'data': result})
+    return jsonify({'ok': True, 'data': data})
+
+
+def parse_attendance_summary(html):
+    """Portal ke attendance table ko app ke format me parse karo.
+    Columns: Course Code | Title | Total Delv. | Total Attd. | IDL | ADL |
+             VDL | Medical Leave | Eligible Delivered | Eligible Attended |
+             Eligible Percentage | View Attendance
+    NOTE: td me data-label attribute hai (e.g. data-label="Course Code:")
+    """
+    from bs4 import BeautifulSoup
+    import re
+    soup = BeautifulSoup(html, 'html.parser')
+    rows = []
+
+    def cell(tr, label):
+        # data-label="Course Code:" ya data-label="Course Code"
+        el = tr.find('td', attrs={'data-label': label + ':'})
+        if not el:
+            el = tr.find('td', attrs={'data-label': label})
+        return el.get_text(strip=True) if el else ''
+
+    def num(s):
+        try:
+            n = float(str(s or '').replace(',', ''))
+            return n if n == n else 0  # NaN check
+        except (ValueError, TypeError):
+            return 0
+
+    for table in soup.find_all('table'):
+        for tr in table.find_all('tr'):
+            code = cell(tr, 'Course Code')
+            if not code:
+                continue
+            btn = tr.find('input', attrs={'value': 'View'})
+            rows.append({
+                'code': code,
+                'title': cell(tr, 'Title'),
+                'delivered': num(cell(tr, 'Total Delv.')),
+                'attended': num(cell(tr, 'Total Attd.')),
+                'idl': num(cell(tr, 'IDL')),
+                'adl': num(cell(tr, 'ADL')),
+                'vdl': num(cell(tr, 'VDL')),
+                'medical': num(cell(tr, 'Medical Leave')),
+                'eligibleDelivered': num(cell(tr, 'Eligible Delivered')),
+                'eligibleAttended': num(cell(tr, 'Eligible Attended')),
+                'pct': num(cell(tr, 'Eligible Percentage')),
+                'viewObj': btn.get('obj', '') if btn else '',
+                'viewChk': btn.get('chk', '') if btn else '',
+            })
+        if rows:
+            break  # Pehli table jisme data mila
+
+    return rows
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
