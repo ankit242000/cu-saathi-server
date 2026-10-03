@@ -247,17 +247,36 @@ class PortalClient:
 
         body = r.text
         # Success check: dashboard ya redirect
+        redirect_url = None
         if 'StudentHome.aspx' in body or 'studenthome' in body.lower():
-            return {'ok': True, 'html': body}
-        # Delta redirect check
-        if sm_name:
+            pass  # Direct success
+        elif sm_name:
+            # Delta redirect check
             try:
-                redirect = self._parse_delta_redirect(body)
-                if redirect:
-                    return {'ok': True, 'redirect': redirect}
+                redirect_url = self._parse_delta_redirect(body)
             except:
                 pass
-        return {'ok': False, 'reason': 'Login success confirm nahi hua', 'html': body[:2000]}
+            if not redirect_url:
+                return {'ok': False, 'reason': 'Login success confirm nahi hua', 'html': body[:2000]}
+        else:
+            return {'ok': False, 'reason': 'Login success confirm nahi hua', 'html': body[:2000]}
+
+        # Redirect follow karo (LandingPage.aspx -> StudentHome.aspx)
+        # Portal ko poora session establish karne do
+        if redirect_url:
+            from urllib.parse import unquote
+            redirect_url = unquote(redirect_url)
+            try:
+                self.s.get(urljoin(BASE, redirect_url), timeout=30)
+            except:
+                pass
+        # StudentHome visit karo taaki session fully authenticated ho
+        try:
+            self.s.get(urljoin(BASE, '/StudentHome.aspx'), timeout=30)
+        except:
+            pass
+
+        return {'ok': True, 'redirect': redirect_url} if redirect_url else {'ok': True}
 
     def _parse_delta_redirect(self, text):
         i = 0
