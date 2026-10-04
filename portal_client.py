@@ -197,21 +197,26 @@ class PortalClient:
         soup = BeautifulSoup(self.stage2_html, 'html.parser')
         fields = dict(self.stage2_fields)
 
-        # Password field
+        # Password field (name ya id — jo mile)
         pass_input = soup.find('input', {'type': 'password'})
-        if not pass_input or not pass_input.get('name'):
+        pw_name = pass_input.get('name') if pass_input else None
+        if not pw_name and pass_input:
+            pw_name = pass_input.get('id')
+        if not pass_input or not pw_name:
             return {'ok': False, 'reason': 'Password field nahi mila'}
-        fields[pass_input['name']] = password
+        fields[pw_name] = password
 
-        # CAPTCHA field
+        # CAPTCHA field (name ya id me captcha/cap dhoondho)
         cap_input = None
         for inp in soup.find_all('input', {'type': 'text'}):
-            name = inp.get('name', '')
+            name = inp.get('name', '') or inp.get('id', '')
             if 'captcha' in name.lower() or 'cap' in name.lower():
                 cap_input = inp
                 break
-        if cap_input and cap_input.get('name'):
-            fields[cap_input['name']] = captcha_text
+        if cap_input:
+            cap_name = cap_input.get('name') or cap_input.get('id')
+            if cap_name:
+                fields[cap_name] = captcha_text
 
         # LOGIN button
         login_btn = None
