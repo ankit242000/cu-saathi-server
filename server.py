@@ -846,3 +846,42 @@ def parse_notices(html):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
+
+# 10-minute auto-sync scheduler (background thread)
+# Har 10 min me logged-in students ka data refresh karo
+import threading
+def _auto_sync_loop():
+    import time
+    while True:
+        try:
+            time.sleep(10 * 60)  # 10 minutes
+            # Har logged-in student ke liye dashboard hit karo (session alive + data fresh)
+            for sid in list(sessions.keys()):
+                s = sessions.get(sid)
+                if not s or not s.get('logged_in'):
+                    continue
+                try:
+                    client = s.get('client')
+                    if client:
+                        # Lightweight keep-alive: dashboard fetch
+                        r = client.get_page('/StudentHome.aspx')
+                        if r.get('ok') and len(r.get('html', '')) > 50000:
+                            s['created'] = time.time()  # session refresh
+                            print(f"Auto-sync OK for {sid}")
+                        else:
+                            # Session expired, mark for re-login
+                            print(f"Auto-sync: session expired for {sid}")
+                            s['logged_in'] = False
+                except Exception as e:
+                    print(f"Auto-sync failed for {sid}: {e}")
+            # Save updated sessions
+            try:
+                save_sessions()
+            except:
+                pass
+        except Exception as e:
+            print(f"Auto-sync loop error: {e}")
+
+# Scheduler thread start karo (daemon)
+_sync_thread = threading.Thread(target=_auto_sync_loop, daemon=True)
+_sync_thread.start()
