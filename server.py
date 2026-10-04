@@ -166,13 +166,29 @@ def get_data(student_id):
     data = {'studentId': sid}
 
     def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
-        """Direct GET karo (portal uses plain GETs). Sec-Fetch headers se UIMS Error fix hota hai."""
+        """Direct GET karo. Agar UIMS Error aaye to retry with fresh dashboard."""
+        # Pehli try: direct GET
         result = client.get_page(direct_url)
         _page_info(page_name, result)
+        html = result.get('html', '') if result.get('ok') else ''
+        is_uims = 'UIMS Error' in html
+
+        # Retry: dashboard re-fetch karke phir try karo
+        # (ASP.NET session state refresh ho sakta hai)
+        if is_uims:
+            try:
+                dash_retry = client.get_page('/StudentHome.aspx')
+                if dash_retry.get('ok') and len(dash_retry.get('html', '')) > 50000:
+                    result = client.get_page(direct_url)
+                    _page_info(page_name + '_retry', result)
+            except:
+                pass
+
         if debug_mode:
-            html = result.get('html', '')
+            html = result.get('html', '') if result.get('ok') else ''
             if 'UIMS Error' in html:
                 page_debug[page_name]['is_uims_error'] = True
+                page_debug[page_name]['retried'] = True
         return result
 
     # Dashboard pehle fetch karo (navigation ke liye chahiye)
