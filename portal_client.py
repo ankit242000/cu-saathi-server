@@ -293,6 +293,58 @@ class PortalClient:
             i = p3 + 1 + length + 1
         return None
 
+    def submit_attendance_search(self, att_html, att_url):
+        """Attendance page par Search button dabao taaki data table aaye.
+        att_html: attendance filter page ka HTML (119KB)
+        att_url: attendance page ka URL
+        Returns: {'ok': bool, 'html': str, 'status': int}
+        """
+        from bs4 import BeautifulSoup
+        import re
+        from urllib.parse import urljoin, BASE if False else None
+        soup = BeautifulSoup(att_html, 'html.parser')
+        
+        # ViewState nikalo
+        vs = soup.find('input', {'name': '__VIEWSTATE'})
+        ev = soup.find('input', {'name': '__EVENTVALIDATION'})
+        viewstate = vs.get('value', '') if vs else ''
+        eventvalidation = ev.get('value', '') if ev else ''
+        
+        # Search button dhoondho
+        event_target = None
+        for inp in soup.find_all('input', {'type': 'submit'}):
+            val = inp.get('value', '').lower()
+            if 'search' in val:
+                # onclick me __doPostBack ho sakta hai
+                onclick = inp.get('onclick', '')
+                m = re.search(r"__doPostBack\('([^']+)'", onclick)
+                if m:
+                    event_target = m.group(1)
+                else:
+                    # Name attribute use karo
+                    event_target = inp.get('name', '')
+                break
+        
+        # Agar button nahi mila to form ka default submit
+        data = {
+            '__VIEWSTATE': viewstate,
+            '__EVENTVALIDATION': eventvalidation,
+        }
+        if event_target:
+            data['__EVENTTARGET'] = event_target
+            data['__EVENTARGUMENT'] = ''
+        
+        # Form ke saare hidden inputs bhi add karo
+        for inp in soup.find_all('input', {'type': 'hidden'}):
+            name = inp.get('name')
+            if name and name not in data:
+                data[name] = inp.get('value', '')
+        
+        from urllib.parse import urljoin
+        full_url = urljoin('https://students.cuchd.in/', att_url)
+        r = self.s.post(full_url, data=data, timeout=30)
+        return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
+
     def get_page(self, url):
         """Authenticated page fetch"""
         full = urljoin(BASE, url)

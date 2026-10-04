@@ -199,9 +199,17 @@ def get_data(student_id):
                 break
 
     att = _fetch_with_fallback('attendance', att_url, 'My Attendance', dashboard_html)
+    # Agar page aaya par table nahi mila (filter page hai), to Search dabao
     if att['ok']:
         att_debug = {}
         summary = parse_attendance_summary(att['html'], att_debug if debug_mode else None)
+        # Agar 0 rows mile aur page bada hai (filter page), to Search try karo
+        if not summary and len(att['html']) > 50000:
+            search_result = client.submit_attendance_search(att['html'], att_url)
+            if search_result['ok']:
+                att = search_result
+                _page_info('attendance_search', att)
+                summary = parse_attendance_summary(att['html'], att_debug if debug_mode else None)
         if debug_mode:
             page_debug['attendance']['parser'] = att_debug
             page_debug['attendance']['rows_found'] = len(summary) if summary else 0
