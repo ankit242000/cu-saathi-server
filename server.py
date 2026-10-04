@@ -134,6 +134,24 @@ def get_data(student_id):
     if not s.get('logged_in'):
         return jsonify({'ok': False, 'reason': 'login nahi hua'}), 401
 
+    # Debug mode: ?debug=1 returns page-fetch diagnostics (privacy-safe)
+    debug_mode = request.args.get('debug') == '1'
+    page_debug = {} if debug_mode else None
+
+    def _page_info(name, result):
+        """Privacy-safe page diagnostics (no personal data, no HTML content)"""
+        if not debug_mode:
+            return
+        html = result.get('html', '') if result.get('ok') else ''
+        page_debug[name] = {
+            'http_ok': result.get('ok', False),
+            'http_status': result.get('status', 0),
+            'html_len': len(html),
+            'is_login_page': 'txtUserId' in html or 'txtPassword' in html,
+            'has_studenthome': 'StudentHome' in html,
+            'has_table': '<table' in html.lower(),
+        }
+
     client = s['client']
     data = {'studentId': sid}
 
@@ -142,6 +160,7 @@ def get_data(student_id):
     # Token dashboard se nikalna padta hai!
     att_url = '/frmStudentCourseWiseAttendanceSummary.aspx'  # fallback
     d = client.get_page('/StudentHome.aspx')
+    _page_info('dashboard', d)
     if d['ok']:
         from bs4 import BeautifulSoup
         import re
@@ -152,6 +171,7 @@ def get_data(student_id):
                 break
 
     att = client.get_page(att_url)
+    _page_info('attendance', att)
     if att['ok']:
         summary = parse_attendance_summary(att['html'])
         if summary:
@@ -160,6 +180,7 @@ def get_data(student_id):
     # Profile — Digital ID Card ke liye
     # Portal URL: frmStudentProfile.aspx
     prof = client.get_page('/frmStudentProfile.aspx')
+    _page_info('profile', prof)
     if prof['ok']:
         profile = parse_profile(prof['html'])
         if profile and (profile.get('name') or profile.get('uid')):
@@ -167,6 +188,7 @@ def get_data(student_id):
 
     # Timetable — frmMyTimeTable.aspx
     tt = client.get_page('/frmMyTimeTable.aspx')
+    _page_info('timetable', tt)
     if tt['ok']:
         slots = parse_timetable(tt['html'])
         if slots:
@@ -174,6 +196,7 @@ def get_data(student_id):
 
     # Datesheet — frmStudentDatesheet.aspx
     ds = client.get_page('/frmStudentDatesheet.aspx')
+    _page_info('datesheet', ds)
     if ds['ok']:
         datesheet = parse_datesheet(ds['html'])
         if datesheet:
@@ -185,6 +208,7 @@ def get_data(student_id):
                       ('general', '/frmStudentGeneralLeaveApply.aspx'),
                       ('medical', '/frmStudentMedicalLeaveApply.aspx')]:
         lr = client.get_page(url)
+        _page_info(f'leave_{kind}', lr)
         if lr['ok']:
             rows = parse_leave_history(lr['html'])
             leaves[kind] = rows
@@ -193,6 +217,7 @@ def get_data(student_id):
 
     # Marks — frmStudentMarksView.aspx
     mk = client.get_page('/frmStudentMarksView.aspx')
+    _page_info('marks', mk)
     if mk['ok']:
         marks = parse_marks(mk['html'])
         if marks:
@@ -209,7 +234,10 @@ def get_data(student_id):
     data['scrapedAt'] = datetime.now(timezone.utc).isoformat()
 
     s['created'] = time.time()  # TTL refresh
-    return jsonify({'ok': True, 'data': data})
+    resp = {'ok': True, 'data': data}
+    if debug_mode:
+        resp['page_debug'] = page_debug
+    return jsonify(resp)
 
 
 def parse_attendance_summary(html):
