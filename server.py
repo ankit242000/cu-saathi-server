@@ -321,11 +321,61 @@ def parse_attendance_summary(html, debug_info=None):
     return rows
 
 
+def parse_daywise_attendance(html):
+    """Day-wise attendance detail ko parse karo.
+    Modal structure: SrNo | Date | Type | Time | Attendance | Section | Group | Marked By
+    TD me data-label attributes hain.
+    Date format: "Weekday, DD Mon YYYY"
+    Time format: "HH:MM - HH:MM AM/PM"
+    Attendance: "Present", "Absent", "Absent (VDL -NSS)", "Absent (Medical Leave)"
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    rows = []
+
+    def cell(tr, label):
+        el = tr.find('td', attrs={'data-label': label + ':'})
+        if not el:
+            el = tr.find('td', attrs={'data-label': label})
+        return el.get_text(strip=True) if el else ''
+
+    for table in soup.find_all('table'):
+        for tr in table.find_all('tr'):
+            srno = cell(tr, 'SrNo')
+            if not srno:
+                continue
+            date = cell(tr, 'Date')
+            att_type = cell(tr, 'Type')
+            time = cell(tr, 'Time')
+            attendance = cell(tr, 'Attendance')
+            section = cell(tr, 'Section')
+            group = cell(tr, 'Group')
+            marked_by = cell(tr, 'Marked By')
+            # Status determine karo
+            status = 'present' if 'present' in attendance.lower() else 'absent'
+            rows.append({
+                'srNo': srno,
+                'date': date,
+                'type': att_type,
+                'time': time,
+                'attendance': attendance,
+                'status': status,
+                'section': section,
+                'group': group,
+                'markedBy': marked_by,
+            })
+        if rows:
+            break
+
+    return rows
+
+
 def parse_profile(html, debug_info=None):
     """Student profile ko app ke format me parse karo.
     URL: frmStudentProfile.aspx
-    Section: <h4 class="card-heading">Student Personal Information</h4>
-    followed by label | value table.
+    Section: <h4 class="card-heading"><b>Student Personal Information</b></h4>
+    followed by label/value text pairs (NO table for personal info!).
+    Other sections (QUALIFICATION, CONTACT, MENTOR) have tables.
     """
     from bs4 import BeautifulSoup
     import re
@@ -341,27 +391,45 @@ def parse_profile(html, debug_info=None):
     for h4 in soup.find_all('h4', class_='card-heading'):
         if 'student personal information' not in h4.get_text().lower():
             continue
-        table = None
-        # Pehle next sibling tables dhoondho
-        for sib in h4.next_siblings:
-            if getattr(sib, 'name', None) == 'table':
-                table = sib
-                break
-        if not table:
-            # Parent me dhoondho
-            parent = h4.parent
-            if parent:
-                table = parent.find('table')
-        if not table:
+        # Browser report: personal info is label/value TEXT PAIRS, no table!
+        # Look for the container after h4 and extract label:value pairs
+        container = h4.parent
+        if not container:
             continue
-        for tr in table.find_all('tr'):
-            tds = tr.find_all('td')
-            if len(tds) < 2:
-                continue
-            label = re.sub(r'[^a-z]+', '', tds[0].get_text(strip=True).lower())
-            value = tds[1].get_text(strip=True)
-            if label:
-                out[label] = value
+        # Get all text and parse label:value patterns
+        # Labels: UID, Name, Father's Name, Mother Name, D.O.B., Admission Year,
+        #         Current Semester, Current Section, Program Code, etc.
+        text = container.get_text(separator='|', strip=True)
+        # Split by | and look for label:value pairs
+        parts = [p.strip() for p in text.split('|') if p.strip()]
+        for i, part in enumerate(parts):
+            # Check if this looks like a label (ends with : or is a known label)
+            label_lower = part.lower().rstrip(':')
+            label_key = re.sub(r'[^a-z]+', '', label_lower)
+            # Known labels
+            if label_key in ('uid', 'name', 'fathersname', 'mothername', 'dob',
+                           'admissionyear', 'currentsemester', 'currentsection',
+                           'programcode', 'studentstatus', 'bloodgroup',
+                           'religion', 'cast', 'address'):
+                # Next part is the value
+                if i + 1 < len(parts):
+                    value = parts[i + 1]
+                    # Don't take another label as value
+                    value_key = re.sub(r'[^a-z]+', '', value.lower().rstrip(':'))
+                    if value_key not in ('uid', 'name', 'fathersname', 'mothername',
+                                        'dob', 'admissionyear', 'currentsemester',
+                                        'currentsection', 'programcode'):
+                        out[label_key] = value
+        # Also try table format as fallback (for other sections)
+        for table in container.find_all('table'):
+            for tr in table.find_all('tr'):
+                tds = tr.find_all('td')
+                if len(tds) < 2:
+                    continue
+                label = re.sub(r'[^a-z]+', '', tds[0].get_text(strip=True).lower())
+                value = tds[1].get_text(strip=True)
+                if label:
+                    out[label] = value
 
     return {
         'uid': out.get('uid', ''),

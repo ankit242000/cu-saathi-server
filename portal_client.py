@@ -298,3 +298,42 @@ class PortalClient:
         full = urljoin(BASE, url)
         r = self.s.get(full, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
+
+    def navigate_via_postback(self, dashboard_html, link_text):
+        """Dashboard se menu link par click karke navigate karo (WebForms postback).
+        link_text: menu item ka text (e.g. 'My Attendance', 'Time Table')
+        Returns: {'ok': bool, 'html': str, 'status': int}
+        """
+        from bs4 import BeautifulSoup
+        import re
+        soup = BeautifulSoup(dashboard_html, 'html.parser')
+        
+        # Menu link dhoondho jisme link_text ho
+        event_target = None
+        for a in soup.find_all('a', href=True):
+            if link_text.lower() in a.get_text().lower():
+                href = a['href']
+                # javascript:__doPostBack('ctl00$...','') format
+                m = re.search(r"__doPostBack\('([^']+)'", href)
+                if m:
+                    event_target = m.group(1)
+                    break
+        
+        if not event_target:
+            return {'ok': False, 'html': '', 'status': 0, 'error': 'menu-link-not-found'}
+        
+        # Dashboard ka ViewState nikalo
+        vs = soup.find('input', {'name': '__VIEWSTATE'})
+        ev = soup.find('input', {'name': '__EVENTVALIDATION'})
+        viewstate = vs.get('value', '') if vs else ''
+        eventvalidation = ev.get('value', '') if ev else ''
+        
+        # Postback karo
+        data = {
+            '__EVENTTARGET': event_target,
+            '__EVENTARGUMENT': '',
+            '__VIEWSTATE': viewstate,
+            '__EVENTVALIDATION': eventvalidation,
+        }
+        r = self.s.post(urljoin(BASE, '/StudentHome.aspx'), data=data, timeout=30)
+        return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
