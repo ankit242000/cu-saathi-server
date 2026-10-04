@@ -143,10 +143,20 @@ def get_data(student_id):
         if not debug_mode:
             return
         html = result.get('html', '') if result.get('ok') else ''
+        # Extract title (structural, not personal)
+        title = ''
+        if '<title>' in html.lower():
+            try:
+                start = html.lower().index('<title>') + 7
+                end = html.lower().index('</title>', start)
+                title = html[start:end].strip()[:50]
+            except:
+                pass
         page_debug[name] = {
             'http_ok': result.get('ok', False),
             'http_status': result.get('status', 0),
             'html_len': len(html),
+            'title': title,
             'is_login_page': 'txtUserId' in html or 'txtPassword' in html,
             'has_studenthome': 'StudentHome' in html,
             'has_table': '<table' in html.lower(),
