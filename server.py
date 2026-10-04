@@ -173,7 +173,11 @@ def get_data(student_id):
     att = client.get_page(att_url)
     _page_info('attendance', att)
     if att['ok']:
-        summary = parse_attendance_summary(att['html'])
+        att_debug = {}
+        summary = parse_attendance_summary(att['html'], att_debug if debug_mode else None)
+        if debug_mode:
+            page_debug['attendance']['parser'] = att_debug
+            page_debug['attendance']['rows_found'] = len(summary) if summary else 0
         if summary:
             data['attendanceSummary'] = summary
 
@@ -182,7 +186,10 @@ def get_data(student_id):
     prof = client.get_page('/frmStudentProfile.aspx')
     _page_info('profile', prof)
     if prof['ok']:
-        profile = parse_profile(prof['html'])
+        prof_debug = {}
+        profile = parse_profile(prof['html'], prof_debug if debug_mode else None)
+        if debug_mode:
+            page_debug['profile']['parser'] = prof_debug
         if profile and (profile.get('name') or profile.get('uid')):
             data['profile'] = profile
 
@@ -240,7 +247,7 @@ def get_data(student_id):
     return jsonify(resp)
 
 
-def parse_attendance_summary(html):
+def parse_attendance_summary(html, debug_info=None):
     """Portal ke attendance table ko app ke format me parse karo.
     Columns: Course Code | Title | Total Delv. | Total Attd. | IDL | ADL |
              VDL | Medical Leave | Eligible Delivered | Eligible Attended |
@@ -251,6 +258,17 @@ def parse_attendance_summary(html):
     import re
     soup = BeautifulSoup(html, 'html.parser')
     rows = []
+
+    # Debug: count tables and data-label attributes (privacy-safe)
+    if debug_info is not None:
+        tables = soup.find_all('table')
+        debug_info['table_count'] = len(tables)
+        debug_info['data_label_count'] = len(soup.find_all(attrs={'data-label': True}))
+        # Sample data-label values (first 5, structural only)
+        labels = []
+        for el in soup.find_all(attrs={'data-label': True})[:5]:
+            labels.append(el.get('data-label', ''))
+        debug_info['sample_labels'] = labels
 
     def cell(tr, label):
         # data-label="Course Code:" ya data-label="Course Code"
@@ -293,7 +311,7 @@ def parse_attendance_summary(html):
     return rows
 
 
-def parse_profile(html):
+def parse_profile(html, debug_info=None):
     """Student profile ko app ke format me parse karo.
     URL: frmStudentProfile.aspx
     Section: <h4 class="card-heading">Student Personal Information</h4>
@@ -303,6 +321,12 @@ def parse_profile(html):
     import re
     soup = BeautifulSoup(html, 'html.parser')
     out = {}
+
+    # Debug: count h4.card-heading (privacy-safe)
+    if debug_info is not None:
+        h4s = soup.find_all('h4', class_='card-heading')
+        debug_info['h4_count'] = len(h4s)
+        debug_info['h4_texts'] = [h.get_text(strip=True)[:30] for h in h4s[:5]]
 
     for h4 in soup.find_all('h4', class_='card-heading'):
         if 'student personal information' not in h4.get_text().lower():
