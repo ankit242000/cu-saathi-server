@@ -299,7 +299,7 @@ class PortalClient:
         r = self.s.get(full, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
 
-    def navigate_via_postback(self, dashboard_html, link_text):
+    def navigate_via_postback(self, dashboard_html, link_text, debug_info=None):
         """Dashboard se menu link par click karke navigate karo (WebForms postback).
         link_text: menu item ka text (e.g. 'My Attendance', 'Time Table')
         Returns: {'ok': bool, 'html': str, 'status': int}
@@ -308,8 +308,19 @@ class PortalClient:
         import re
         soup = BeautifulSoup(dashboard_html, 'html.parser')
         
+        # Debug: collect all menu link texts (privacy-safe, just link texts)
+        if debug_info is not None:
+            all_links = []
+            for a in soup.find_all('a', href=True):
+                txt = a.get_text(strip=True)[:30]
+                if txt:
+                    all_links.append(txt)
+            debug_info['menu_link_count'] = len(all_links)
+            debug_info['menu_links_sample'] = all_links[:20]
+        
         # Menu link dhoondho jisme link_text ho
         event_target = None
+        direct_href = None
         for a in soup.find_all('a', href=True):
             if link_text.lower() in a.get_text().lower():
                 href = a['href']
@@ -318,9 +329,24 @@ class PortalClient:
                 if m:
                     event_target = m.group(1)
                     break
+                elif not href.startswith('javascript:'):
+                    # Regular link — use directly
+                    direct_href = href
+                    break
+        
+        if direct_href:
+            # Regular link hai, direct GET karo
+            if debug_info is not None:
+                debug_info['nav_method'] = 'direct_href'
+            return self.get_page(direct_href)
         
         if not event_target:
+            if debug_info is not None:
+                debug_info['nav_method'] = 'not-found'
             return {'ok': False, 'html': '', 'status': 0, 'error': 'menu-link-not-found'}
+        
+        if debug_info is not None:
+            debug_info['nav_method'] = 'postback'
         
         # Dashboard ka ViewState nikalo
         vs = soup.find('input', {'name': '__VIEWSTATE'})

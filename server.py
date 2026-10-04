@@ -171,10 +171,13 @@ def get_data(student_id):
         # Check if it's an error page (1000 bytes + UIMS Error title)
         html = result.get('html', '')
         is_error = len(html) <= 1500 and 'UIMS Error' in html
+        nav_debug = {}
         if is_error and dashboard_html:
             # Menu se navigate karo
-            result = client.navigate_via_postback(dashboard_html, menu_text)
+            result = client.navigate_via_postback(dashboard_html, menu_text, nav_debug if debug_mode else None)
         _page_info(page_name, result)
+        if debug_mode and nav_debug:
+            page_debug[page_name]['nav_debug'] = nav_debug
         return result
 
     # Dashboard pehle fetch karo (navigation ke liye chahiye)
