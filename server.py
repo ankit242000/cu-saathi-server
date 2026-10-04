@@ -165,12 +165,27 @@ def get_data(student_id):
     client = s['client']
     data = {'studentId': sid}
 
+    def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
+        """Pehle direct URL try karo, agar UIMS Error aaye to menu postback se navigate karo."""
+        result = client.get_page(direct_url)
+        # Check if it's an error page (1000 bytes + UIMS Error title)
+        html = result.get('html', '')
+        is_error = len(html) <= 1500 and 'UIMS Error' in html
+        if is_error and dashboard_html:
+            # Menu se navigate karo
+            result = client.navigate_via_postback(dashboard_html, menu_text)
+        _page_info(page_name, result)
+        return result
+
+    # Dashboard pehle fetch karo (navigation ke liye chahiye)
+    d = client.get_page('/StudentHome.aspx')
+    _page_info('dashboard', d)
+    dashboard_html = d['html'] if d['ok'] else ''
+
     # Attendance summary — app-compatible format
     # Portal URL: frmStudentCourseWiseAttendanceSummary.aspx?type=<token>
     # Token dashboard se nikalna padta hai!
     att_url = '/frmStudentCourseWiseAttendanceSummary.aspx'  # fallback
-    d = client.get_page('/StudentHome.aspx')
-    _page_info('dashboard', d)
     if d['ok']:
         from bs4 import BeautifulSoup
         import re
@@ -180,8 +195,7 @@ def get_data(student_id):
                 att_url = a['href']
                 break
 
-    att = client.get_page(att_url)
-    _page_info('attendance', att)
+    att = _fetch_with_fallback('attendance', att_url, 'My Attendance', dashboard_html)
     if att['ok']:
         att_debug = {}
         summary = parse_attendance_summary(att['html'], att_debug if debug_mode else None)
@@ -193,8 +207,7 @@ def get_data(student_id):
 
     # Profile — Digital ID Card ke liye
     # Portal URL: frmStudentProfile.aspx
-    prof = client.get_page('/frmStudentProfile.aspx')
-    _page_info('profile', prof)
+    prof = _fetch_with_fallback('profile', '/frmStudentProfile.aspx', 'Profile', dashboard_html)
     if prof['ok']:
         prof_debug = {}
         profile = parse_profile(prof['html'], prof_debug if debug_mode else None)
@@ -204,16 +217,14 @@ def get_data(student_id):
             data['profile'] = profile
 
     # Timetable — frmMyTimeTable.aspx
-    tt = client.get_page('/frmMyTimeTable.aspx')
-    _page_info('timetable', tt)
+    tt = _fetch_with_fallback('timetable', '/frmMyTimeTable.aspx', 'Time Table', dashboard_html)
     if tt['ok']:
         slots = parse_timetable(tt['html'])
         if slots:
             data['timetable'] = slots
 
     # Datesheet — frmStudentDatesheet.aspx
-    ds = client.get_page('/frmStudentDatesheet.aspx')
-    _page_info('datesheet', ds)
+    ds = _fetch_with_fallback('datesheet', '/frmStudentDatesheet.aspx', 'Datesheet', dashboard_html)
     if ds['ok']:
         datesheet = parse_datesheet(ds['html'])
         if datesheet:
@@ -224,8 +235,7 @@ def get_data(student_id):
     for kind, url in [('duty', '/frmStudentApplyDutyLeave.aspx'),
                       ('general', '/frmStudentGeneralLeaveApply.aspx'),
                       ('medical', '/frmStudentMedicalLeaveApply.aspx')]:
-        lr = client.get_page(url)
-        _page_info(f'leave_{kind}', lr)
+        lr = _fetch_with_fallback(f'leave_{kind}', url, f'{kind} leave', dashboard_html)
         if lr['ok']:
             rows = parse_leave_history(lr['html'])
             leaves[kind] = rows
@@ -233,8 +243,7 @@ def get_data(student_id):
         data['leaves'] = leaves
 
     # Marks — frmStudentMarksView.aspx
-    mk = client.get_page('/frmStudentMarksView.aspx')
-    _page_info('marks', mk)
+    mk = _fetch_with_fallback('marks', '/frmStudentMarksView.aspx', 'Marks', dashboard_html)
     if mk['ok']:
         marks = parse_marks(mk['html'])
         if marks:
