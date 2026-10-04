@@ -94,10 +94,19 @@ def submit_captcha(student_id):
 
     r = s['client'].submit_login(s['password'], text)
     if not r['ok']:
-        # Naya CAPTCHA taiyaar karo retry ke liye
-        cap = s['client'].get_captcha()
-        if cap['ok']:
-            s['captcha_image'] = cap['image']
+        # ViewState stale ho gaya hai — fresh Stage 1 karo
+        # (Failed login ke baad portal purana ViewState reject karta hai)
+        try:
+            fresh_client = PortalClient()
+            r1 = fresh_client.submit_uid(student_id)
+            if r1['ok']:
+                cap = fresh_client.get_captcha()
+                if cap['ok']:
+                    # Session ko fresh client se replace karo
+                    s['client'] = fresh_client
+                    s['captcha_image'] = cap['image']
+        except Exception:
+            pass
         s['created'] = time.time()
         resp = {'ok': False, 'retry': True,
                 'reason': r['reason']}
