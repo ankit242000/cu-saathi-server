@@ -16,90 +16,10 @@ from portal_client import PortalClient
 app = Flask(__name__)
 
 # sessions: {studentId: {client, password, logged_in, captcha_pending, created}}
+# NOTE: Sessions are IN-MEMORY ONLY (no disk storage for legal safety)
+# Portal cookies never leave the user's device in the new architecture
 sessions = {}
 SESSION_TTL = 10 * 60  # 10 min
-
-# Persistent session storage (encrypted cookies on disk)
-import os
-import json
-SESSION_FILE = os.path.join(os.path.dirname(__file__), '.sessions.enc')
-def _get_cipher():
-    from cryptography.fernet import Fernet
-    key_file = os.path.join(os.path.dirname(__file__), '.session.key')
-    if os.path.exists(key_file):
-        with open(key_file, 'rb') as f:
-            key = f.read()
-    else:
-        key = Fernet.generate_key()
-        with open(key_file, 'wb') as f:
-            f.write(key)
-    return Fernet(key)
-
-def save_sessions():
-    """Save logged-in sessions' cookies to encrypted disk (survives restart)"""
-    try:
-        cipher = _get_cipher()
-        data = {}
-        for sid, s in sessions.items():
-            if not s.get('logged_in'):
-                continue
-            client = s.get('client')
-            cookies = []
-            if client and hasattr(client, 's'):
-                try:
-                    for c in client.s.cookies:
-                        cookies.append({
-                            'name': c.name, 'value': c.value,
-                            'domain': c.domain, 'path': c.path,
-                        })
-                except:
-                    pass
-            data[sid] = {
-                'cookies': cookies,
-                'created': s.get('created', time.time()),
-                # password NOT saved (user re-enters on expiry)
-            }
-        enc = cipher.encrypt(json.dumps(data).encode())
-        with open(SESSION_FILE, 'wb') as f:
-            f.write(enc)
-    except Exception as e:
-        print(f"save_sessions failed: {e}")
-
-def load_sessions():
-    """Load sessions from encrypted disk on startup"""
-    try:
-        if not os.path.exists(SESSION_FILE):
-            return
-        cipher = _get_cipher()
-        with open(SESSION_FILE, 'rb') as f:
-            enc = f.read()
-        data = json.loads(cipher.decrypt(enc).decode())
-        for sid, sdata in data.items():
-            # Recreate client with saved cookies
-            client = PortalClient()
-            try:
-                for c in sdata.get('cookies', []):
-                    client.s.cookies.set(
-                        c['name'], c['value'],
-                        domain=c.get('domain', ''),
-                        path=c.get('path', '/')
-                    )
-            except:
-                pass
-            sessions[sid] = {
-                'client': client,
-                'password': '',  # not stored
-                'logged_in': True,
-                'captcha_pending': False,
-                'created': sdata.get('created', time.time()),
-                'restored': True,
-            }
-        print(f"Restored {len(sessions)} sessions from disk")
-    except Exception as e:
-        print(f"load_sessions failed: {e}")
-
-# Load persisted sessions at startup
-load_sessions()
 
 def clean():
     now = time.time()
@@ -202,8 +122,8 @@ def submit_captcha(student_id):
     s['created'] = time.time()
     # Password memory se hatao (suraksha)
     s['password'] = ''
-    # Cookies disk par save karo (restart survive karega)
-    save_sessions()
+    # NOTE: Cookies disk par SAVE NAHI karte (legal safety)
+    # New architecture: sab kuch user's phone par hota hai
     return jsonify({'ok': True})
 
 @app.route('/data/<student_id>')
@@ -847,41 +767,6 @@ def parse_notices(html):
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
 
-# 10-minute auto-sync scheduler (background thread)
-# Har 10 min me logged-in students ka data refresh karo
-import threading
-def _auto_sync_loop():
-    import time
-    while True:
-        try:
-            time.sleep(10 * 60)  # 10 minutes
-            # Har logged-in student ke liye dashboard hit karo (session alive + data fresh)
-            for sid in list(sessions.keys()):
-                s = sessions.get(sid)
-                if not s or not s.get('logged_in'):
-                    continue
-                try:
-                    client = s.get('client')
-                    if client:
-                        # Lightweight keep-alive: dashboard fetch
-                        r = client.get_page('/StudentHome.aspx')
-                        if r.get('ok') and len(r.get('html', '')) > 50000:
-                            s['created'] = time.time()  # session refresh
-                            print(f"Auto-sync OK for {sid}")
-                        else:
-                            # Session expired, mark for re-login
-                            print(f"Auto-sync: session expired for {sid}")
-                            s['logged_in'] = False
-                except Exception as e:
-                    print(f"Auto-sync failed for {sid}: {e}")
-            # Save updated sessions
-            try:
-                save_sessions()
-            except:
-                pass
-        except Exception as e:
-            print(f"Auto-sync loop error: {e}")
-
-# Scheduler thread start karo (daemon)
-_sync_thread = threading.Thread(target=_auto_sync_loop, daemon=True)
-_sync_thread.start()
+# NOTE: No background portal sync on server (legal safety)
+# New architecture: phone's WebView handles all portal access
+# Server only for: health, FCM, remote config (no portal data)
