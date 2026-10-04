@@ -353,6 +353,15 @@ class PortalClient:
             'Accept-Language': 'en-US,en;q=0.9',
             'Cache-Control': 'max-age=0',
             'Upgrade-Insecure-Requests': '1',
+            # Sec-Fetch metadata (real browser sends these automatically)
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-User': '?1',
+            # Client Hints (Chrome 124)
+            'Sec-CH-UA': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            'Sec-CH-UA-Mobile': '?0',
+            'Sec-CH-UA-Platform': '"Windows"',
         }
         if referer:
             headers['Referer'] = urljoin(BASE, referer)
