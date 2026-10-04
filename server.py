@@ -167,9 +167,6 @@ def get_data(student_id):
 
     def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
         """Direct GET karo (portal uses plain GETs). Sec-Fetch headers se UIMS Error fix hota hai."""
-        import time
-        # Portal ko rapid requests pasand nahi - 2 sec delay
-        time.sleep(2)
         result = client.get_page(direct_url)
         _page_info(page_name, result)
         if debug_mode:
@@ -207,6 +204,9 @@ def get_data(student_id):
                 if pattern in href:
                     menu_urls[key] = href
                     break
+        # Debug: log extracted URLs (privacy-safe, just the paths)
+        if debug_mode:
+            page_debug['menu_urls'] = {k: v[:80] for k, v in menu_urls.items()}
 
     # Attendance summary — app-compatible format
     att_url = menu_urls['attendance']
