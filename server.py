@@ -181,18 +181,33 @@ def get_data(student_id):
     _page_info('dashboard', d)
     dashboard_html = d['html'] if d['ok'] else ''
 
-    # Attendance summary — app-compatible format
-    # Portal URL: frmStudentCourseWiseAttendanceSummary.aspx?type=<token>
-    # Token dashboard se nikalna padta hai!
-    att_url = '/frmStudentCourseWiseAttendanceSummary.aspx'  # fallback
+    # Saare menu URLs dashboard se nikalo (exact hrefs)
+    menu_urls = {
+        'attendance': '/frmStudentCourseWiseAttendanceSummary.aspx',
+        'profile': '/frmStudentProfile.aspx',
+        'timetable': '/frmMyTimeTable.aspx',
+        'datesheet': '/frmStudentDatesheet.aspx',
+        'marks': '/frmStudentMarksView.aspx',
+    }
     if d['ok']:
         from bs4 import BeautifulSoup
         import re
         soup = BeautifulSoup(d['html'], 'html.parser')
         for a in soup.find_all('a', href=True):
-            if 'frmStudentCourseWiseAttendanceSummary.aspx' in a['href']:
-                att_url = a['href']
-                break
+            href = a['href']
+            for key, pattern in [
+                ('attendance', 'frmStudentCourseWiseAttendanceSummary.aspx'),
+                ('profile', 'frmStudentProfile.aspx'),
+                ('timetable', 'frmMyTimeTable.aspx'),
+                ('datesheet', 'frmStudentDatesheet.aspx'),
+                ('marks', 'frmStudentMarksView.aspx'),
+            ]:
+                if pattern in href:
+                    menu_urls[key] = href
+                    break
+
+    # Attendance summary — app-compatible format
+    att_url = menu_urls['attendance']
 
     att = _fetch_with_fallback('attendance', att_url, 'My Attendance', dashboard_html)
     # Agar page aaya par table nahi mila (filter page hai), to Search dabao
@@ -213,8 +228,7 @@ def get_data(student_id):
             data['attendanceSummary'] = summary
 
     # Profile — Digital ID Card ke liye
-    # Portal URL: frmStudentProfile.aspx
-    prof = _fetch_with_fallback('profile', '/frmStudentProfile.aspx', 'Profile', dashboard_html)
+    prof = _fetch_with_fallback('profile', menu_urls['profile'], 'Profile', dashboard_html)
     if prof['ok']:
         prof_debug = {}
         profile = parse_profile(prof['html'], prof_debug if debug_mode else None)
@@ -223,15 +237,15 @@ def get_data(student_id):
         if profile and (profile.get('name') or profile.get('uid')):
             data['profile'] = profile
 
-    # Timetable — frmMyTimeTable.aspx
-    tt = _fetch_with_fallback('timetable', '/frmMyTimeTable.aspx', 'Time Table', dashboard_html)
+    # Timetable
+    tt = _fetch_with_fallback('timetable', menu_urls['timetable'], 'Time Table', dashboard_html)
     if tt['ok']:
         slots = parse_timetable(tt['html'])
         if slots:
             data['timetable'] = slots
 
-    # Datesheet — frmStudentDatesheet.aspx
-    ds = _fetch_with_fallback('datesheet', '/frmStudentDatesheet.aspx', 'Datesheet', dashboard_html)
+    # Datesheet
+    ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'Datesheet', dashboard_html)
     if ds['ok']:
         datesheet = parse_datesheet(ds['html'])
         if datesheet:
@@ -249,8 +263,8 @@ def get_data(student_id):
     if leaves:
         data['leaves'] = leaves
 
-    # Marks — frmStudentMarksView.aspx
-    mk = _fetch_with_fallback('marks', '/frmStudentMarksView.aspx', 'Marks', dashboard_html)
+    # Marks
+    mk = _fetch_with_fallback('marks', menu_urls['marks'], 'Marks', dashboard_html)
     if mk['ok']:
         marks = parse_marks(mk['html'])
         if marks:
