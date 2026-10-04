@@ -166,8 +166,10 @@ def get_data(student_id):
     data = {'studentId': sid}
 
     def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
-        """Direct GET karo (portal uses plain GETs). Referer header se UIMS Error fix hota hai."""
-        # Ab get_page me Referer header hai, to direct GET hi kaam karega
+        """Direct GET karo (portal uses plain GETs). Sec-Fetch headers se UIMS Error fix hota hai."""
+        import time
+        # Portal ko rapid requests pasand nahi - 2 sec delay
+        time.sleep(2)
         result = client.get_page(direct_url)
         _page_info(page_name, result)
         if debug_mode:
