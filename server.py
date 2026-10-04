@@ -166,18 +166,14 @@ def get_data(student_id):
     data = {'studentId': sid}
 
     def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
-        """Pehle direct URL try karo, agar UIMS Error aaye to menu postback se navigate karo."""
+        """Direct GET karo (portal uses plain GETs). Referer header se UIMS Error fix hota hai."""
+        # Ab get_page me Referer header hai, to direct GET hi kaam karega
         result = client.get_page(direct_url)
-        # Check if it's an error page (1000 bytes + UIMS Error title)
-        html = result.get('html', '')
-        is_error = len(html) <= 1500 and 'UIMS Error' in html
-        nav_debug = {}
-        if is_error and dashboard_html:
-            # Menu se navigate karo
-            result = client.navigate_via_postback(dashboard_html, menu_text, nav_debug if debug_mode else None)
         _page_info(page_name, result)
-        if debug_mode and nav_debug:
-            page_debug[page_name]['nav_debug'] = nav_debug
+        if debug_mode:
+            html = result.get('html', '')
+            if 'UIMS Error' in html:
+                page_debug[page_name]['is_uims_error'] = True
         return result
 
     # Dashboard pehle fetch karo (navigation ke liye chahiye)

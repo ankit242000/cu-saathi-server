@@ -345,10 +345,16 @@ class PortalClient:
         r = self.s.post(full_url, data=data, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
 
-    def get_page(self, url):
-        """Authenticated page fetch"""
+    def get_page(self, url, referer=None):
+        """Authenticated page fetch - plain GET (portal uses simple GETs for navigation)"""
         full = urljoin(BASE, url)
-        r = self.s.get(full, timeout=30)
+        headers = {}
+        if referer:
+            headers['Referer'] = urljoin(BASE, referer)
+        else:
+            # Default referer: dashboard (portal expects navigation from dashboard)
+            headers['Referer'] = urljoin(BASE, '/StudentHome.aspx')
+        r = self.s.get(full, headers=headers, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
 
     def navigate_via_postback(self, dashboard_html, link_text, debug_info=None):
