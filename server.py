@@ -202,7 +202,16 @@ def get_data(student_id):
                 ('marks', 'frmStudentMarksView.aspx'),
             ]:
                 if pattern in href:
-                    menu_urls[key] = href
+                    # Attendance ke liye ?type= token wala URL prefer karo
+                    if key == 'attendance':
+                        if '?type=' in href or 'type=' in href:
+                            menu_urls[key] = href
+                            break
+                        # Agar token nahi hai to bhi save karo (fallback)
+                        elif menu_urls[key] == '/frmStudentCourseWiseAttendanceSummary.aspx':
+                            menu_urls[key] = href
+                    else:
+                        menu_urls[key] = href
                     break
         # Debug: log extracted URLs (privacy-safe, just the paths)
         if debug_mode:
