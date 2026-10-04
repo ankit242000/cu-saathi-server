@@ -301,7 +301,7 @@ class PortalClient:
         """
         from bs4 import BeautifulSoup
         import re
-        from urllib.parse import urljoin, BASE if False else None
+        from urllib.parse import urljoin
         soup = BeautifulSoup(att_html, 'html.parser')
         
         # ViewState nikalo
