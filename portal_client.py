@@ -395,12 +395,24 @@ class PortalClient:
             debug_info['menu_link_count'] = len(all_links)
             debug_info['menu_links_sample'] = all_links[:20]
         
-        # Menu link dhoondho jisme link_text ho
+        # Menu link dhoondho: pehle text se, phir URL pattern se
+        # link_text URL fragment bhi ho sakta hai (e.g. 'frmMyTimeTable.aspx')
         event_target = None
         direct_href = None
+        is_url_pattern = '.' in link_text and ('aspx' in link_text.lower() or '/' in link_text)
         for a in soup.find_all('a', href=True):
-            if link_text.lower() in a.get_text().lower():
-                href = a['href']
+            href = a['href']
+            text = a.get_text()
+            matched = False
+            if is_url_pattern:
+                # URL pattern se match karo (e.g. 'frmMyTimeTable.aspx' in href)
+                if link_text.lower() in href.lower():
+                    matched = True
+            else:
+                # Text se match karo (purana tarika)
+                if link_text.lower() in text.lower():
+                    matched = True
+            if matched:
                 # javascript:__doPostBack('ctl00$...','') format
                 m = re.search(r"__doPostBack\('([^']+)'", href)
                 if m:
