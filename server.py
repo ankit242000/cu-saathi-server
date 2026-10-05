@@ -422,6 +422,78 @@ def parse_attendance_summary(html, debug_info=None):
         if rows:
             break  # Pehli table jisme data mila
 
+    # FALLBACK: agar data-label se kuch nahi mila, to header-based parsing try karo
+    if not rows:
+        for table in soup.find_all('table'):
+            # Header row dhoondho
+            header_row = None
+            for tr in table.find_all('tr'):
+                ths = tr.find_all('th')
+                if ths and len(ths) >= 3:
+                    header_row = tr
+                    break
+                # Kabhi-kabhi first row me td me header hota hai
+                tds = tr.find_all('td')
+                if tds and any('course' in td.get_text(strip=True).lower() or 'subject' in td.get_text(strip=True).lower() for td in tds):
+                    header_row = tr
+                    break
+            if not header_row:
+                continue
+            # Header texts nikalo
+            headers = [th.get_text(strip=True).lower() for th in header_row.find_all(['th', 'td'])]
+            # Column indices dhoondho
+            def find_col(*keywords):
+                for i, h in enumerate(headers):
+                    for kw in keywords:
+                        if kw in h:
+                            return i
+                return -1
+            code_idx = find_col('course code', 'code')
+            title_idx = find_col('title', 'subject', 'course name')
+            delv_idx = find_col('total delv', 'delivered')
+            attd_idx = find_col('total attd', 'attended')
+            pct_idx = find_col('eligible percentage', 'percentage', '%')
+            if code_idx < 0:
+                continue
+            # Data rows parse karo (header ke baad wali rows)
+            found_header = False
+            for tr in table.find_all('tr'):
+                if tr == header_row:
+                    found_header = True
+                    continue
+                if not found_header:
+                    continue
+                tds = tr.find_all('td')
+                if len(tds) <= code_idx:
+                    continue
+                code = tds[code_idx].get_text(strip=True)
+                if not code or len(code) < 2:
+                    continue
+                def get_num(idx):
+                    if idx < 0 or idx >= len(tds):
+                        return 0
+                    try:
+                        return float(tds[idx].get_text(strip=True).replace(',', '') or 0)
+                    except:
+                        return 0
+                rows.append({
+                    'code': code,
+                    'title': tds[title_idx].get_text(strip=True) if title_idx >= 0 and title_idx < len(tds) else '',
+                    'delivered': get_num(delv_idx),
+                    'attended': get_num(attd_idx),
+                    'idl': 0, 'adl': 0, 'vdl': 0, 'medical': 0,
+                    'eligibleDelivered': get_num(delv_idx),
+                    'eligibleAttended': get_num(attd_idx),
+                    'pct': get_num(pct_idx),
+                    'viewObj': '', 'viewChk': '',
+                })
+            if rows:
+                break
+
+    if debug_info is not None:
+        debug_info['parser_method'] = 'data-label' if debug_info.get('data_label_count', 0) > 0 else 'header-fallback'
+        debug_info['rows_found'] = len(rows)
+
     return rows
 
 
