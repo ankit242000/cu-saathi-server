@@ -196,7 +196,10 @@ def get_data(student_id):
         html = result.get('html', '') if result.get('ok') else ''
         if 'UIMS Error' in html and dashboard_html and menu_text:
             try:
-                pb_result = client.navigate_via_postback(dashboard_html, menu_text)
+                pb_debug = {}
+                pb_result = client.navigate_via_postback(dashboard_html, menu_text, pb_debug)
+                if debug_mode:
+                    page_debug[page_name + '_postback_debug'] = pb_debug
                 pb_html = pb_result.get('html', '') if pb_result.get('ok') else ''
                 if pb_result.get('ok') and 'UIMS Error' not in pb_html and len(pb_html) > 5000:
                     result = pb_result
