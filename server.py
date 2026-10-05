@@ -305,22 +305,39 @@ def get_data(student_id):
             if slots:
                 data['timetable'] = slots
 
-    # Datesheet
-    ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'frmStudentDatesheet.aspx', dashboard_html)
-    if ds['ok']:
-        datesheet = parse_datesheet(ds['html'])
+    # Datesheet — NEW: dedicated API method
+    ds_result = client.get_datesheet_data(menu_urls['datesheet'])
+    if debug_mode:
+        page_debug['datesheet_api'] = ds_result.get('debug', {})
+    if ds_result['ok']:
+        datesheet = parse_datesheet(ds_result['html'])
         if datesheet:
             data['datesheet'] = datesheet
+    else:
+        # Fallback: old method
+        ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'frmStudentDatesheet.aspx', dashboard_html)
+        if ds['ok']:
+            datesheet = parse_datesheet(ds['html'])
+            if datesheet:
+                data['datesheet'] = datesheet
 
-    # Leaves — duty, general, medical
+    # Leaves — NEW: dedicated API methods (duty, general, medical)
     leaves = {}
     for kind, url in [('duty', '/frmStudentApplyDutyLeave.aspx'),
                       ('general', '/frmStudentGeneralLeaveApply.aspx'),
                       ('medical', '/frmStudentMedicalLeaveApply.aspx')]:
-        lr = _fetch_with_fallback(f'leave_{kind}', url, url.split('/')[-1], dashboard_html)
-        if lr['ok']:
-            rows = parse_leave_history(lr['html'])
+        lr_result = client.get_leave_data(url, kind)
+        if debug_mode:
+            page_debug[f'leave_{kind}_api'] = lr_result.get('debug', {})
+        if lr_result['ok']:
+            rows = parse_leave_history(lr_result['html'])
             leaves[kind] = rows
+        else:
+            # Fallback: old method
+            lr = _fetch_with_fallback(f'leave_{kind}', url, url.split('/')[-1], dashboard_html)
+            if lr['ok']:
+                rows = parse_leave_history(lr['html'])
+                leaves[kind] = rows
     if leaves:
         data['leaves'] = leaves
 
