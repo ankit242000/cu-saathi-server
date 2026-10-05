@@ -169,8 +169,9 @@ def get_data(student_id):
     client = s['client']
     data = {'studentId': sid}
 
+
     def _fetch_with_fallback(page_name, direct_url, menu_text, dashboard_html):
-        """Direct GET karo. Agar UIMS Error aaye to retry with fresh dashboard."""
+        """Direct GET karo. Agar UIMS Error aaye to postback navigation try karo."""
         # Pehli try: direct GET
         result = client.get_page(direct_url)
         _page_info(page_name, result)
@@ -183,8 +184,22 @@ def get_data(student_id):
             try:
                 dash_retry = client.get_page('/StudentHome.aspx')
                 if dash_retry.get('ok') and len(dash_retry.get('html', '')) > 50000:
+                    dashboard_html = dash_retry['html']
                     result = client.get_page(direct_url)
                     _page_info(page_name + '_retry', result)
+            except:
+                pass
+
+        # Fallback: postback navigation via dashboard menu
+        # (Direct GET se UIMS Error aata hai, menu click se kaam karta hai)
+        html = result.get('html', '') if result.get('ok') else ''
+        if 'UIMS Error' in html and dashboard_html and menu_text:
+            try:
+                pb_result = client.navigate_via_postback(dashboard_html, menu_text)
+                pb_html = pb_result.get('html', '') if pb_result.get('ok') else ''
+                if pb_result.get('ok') and 'UIMS Error' not in pb_html and len(pb_html) > 5000:
+                    result = pb_result
+                    _page_info(page_name + '_postback', result)
             except:
                 pass
 
@@ -194,6 +209,8 @@ def get_data(student_id):
                 page_debug[page_name]['is_uims_error'] = True
                 page_debug[page_name]['retried'] = True
         return result
+
+
 
     # Dashboard pehle fetch karo (navigation ke liye chahiye)
     d = client.get_page('/StudentHome.aspx')
