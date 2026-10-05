@@ -257,7 +257,7 @@ def get_data(student_id):
     # Attendance summary — app-compatible format
     att_url = menu_urls['attendance']
 
-    att = _fetch_with_fallback('attendance', att_url, 'My Attendance', dashboard_html)
+    att = _fetch_with_fallback('attendance', att_url, 'frmStudentCourseWiseAttendanceSummary.aspx', dashboard_html)
     # Agar page aaya par table nahi mila (filter page hai), to Search dabao
     if att['ok']:
         att_debug = {}
@@ -276,7 +276,7 @@ def get_data(student_id):
             data['attendanceSummary'] = summary
 
     # Profile — Digital ID Card ke liye
-    prof = _fetch_with_fallback('profile', menu_urls['profile'], 'Profile', dashboard_html)
+    prof = _fetch_with_fallback('profile', menu_urls['profile'], 'frmStudentProfile.aspx', dashboard_html)
     if prof['ok']:
         prof_debug = {}
         profile = parse_profile(prof['html'], prof_debug if debug_mode else None)
@@ -286,14 +286,14 @@ def get_data(student_id):
             data['profile'] = profile
 
     # Timetable
-    tt = _fetch_with_fallback('timetable', menu_urls['timetable'], 'Time Table', dashboard_html)
+    tt = _fetch_with_fallback('timetable', menu_urls['timetable'], 'frmMyTimeTable.aspx', dashboard_html)
     if tt['ok']:
         slots = parse_timetable(tt['html'])
         if slots:
             data['timetable'] = slots
 
     # Datesheet
-    ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'Datesheet', dashboard_html)
+    ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'frmStudentDatesheet.aspx', dashboard_html)
     if ds['ok']:
         datesheet = parse_datesheet(ds['html'])
         if datesheet:
@@ -304,7 +304,7 @@ def get_data(student_id):
     for kind, url in [('duty', '/frmStudentApplyDutyLeave.aspx'),
                       ('general', '/frmStudentGeneralLeaveApply.aspx'),
                       ('medical', '/frmStudentMedicalLeaveApply.aspx')]:
-        lr = _fetch_with_fallback(f'leave_{kind}', url, f'{kind} leave', dashboard_html)
+        lr = _fetch_with_fallback(f'leave_{kind}', url, url.split('/')[-1], dashboard_html)
         if lr['ok']:
             rows = parse_leave_history(lr['html'])
             leaves[kind] = rows
@@ -312,7 +312,7 @@ def get_data(student_id):
         data['leaves'] = leaves
 
     # Marks
-    mk = _fetch_with_fallback('marks', menu_urls['marks'], 'Marks', dashboard_html)
+    mk = _fetch_with_fallback('marks', menu_urls['marks'], 'frmStudentMarksView.aspx', dashboard_html)
     if mk['ok']:
         marks = parse_marks(mk['html'])
         if marks:
