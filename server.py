@@ -1,5 +1,4 @@
 """
-
 CU Saathi Server v2 — Flask + curl_cffi (Approach #2)
 App ke existing endpoints se compatible:
   POST /register {studentId, password} → {ok, captchaNeeded}
