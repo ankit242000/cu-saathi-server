@@ -1,4 +1,5 @@
 """
+
 CU Saathi Server v2 — Flask + curl_cffi (Approach #2)
 App ke existing endpoints se compatible:
   POST /register {studentId, password} → {ok, captchaNeeded}
@@ -12,6 +13,7 @@ import time
 import io
 import base64
 from portal_client import PortalClient
+from cookie_store import save_cookies, load_cookies, clear_cookies
 
 app = Flask(__name__)
 
