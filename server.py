@@ -336,6 +336,31 @@ def get_data(student_id):
     return jsonify(resp)
 
 
+@app.route('/html_dump/<student_id>/<page_name>')
+def html_dump(student_id, page_name):
+    """TEMPORARY: Dump raw HTML for fake portal building. DELETE BEFORE PRODUCTION."""
+    sid = student_id.lower()
+    sess = sessions.get(sid)
+    if not sess or not sess.get('client'):
+        return jsonify({'ok': False, 'error': 'no-session'}), 401
+    client = sess['client']
+    urls = {
+        'dashboard': '/StudentHome.aspx',
+        'profile': '/frmStudentProfile.aspx',
+        'attendance': '/frmMyAttendance.aspx',
+        'datesheet': '/frmStudentDatesheet.aspx',
+        'marks': '/frmStudentMarksView.aspx',
+        'timetable': '/frmMyTimeTable.aspx',
+    }
+    url = urls.get(page_name)
+    if not url:
+        return jsonify({'ok': False, 'error': 'unknown-page'}), 400
+    try:
+        r = client.get_page(url)
+        html = r.get('html', '') if isinstance(r, dict) else r.text
+        return jsonify({'ok': True, 'html_len': len(html), 'html': html[:500000]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 500
 def parse_attendance_summary(html, debug_info=None):
     """Portal ke attendance table ko app ke format me parse karo.
     Columns: Course Code | Title | Total Delv. | Total Attd. | IDL | ADL |
