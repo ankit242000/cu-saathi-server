@@ -737,3 +737,55 @@ class PortalClient:
         except Exception as e:
             debug['error'] = str(e)[:100]
             return {'ok': False, 'debug': debug}
+
+    def get_datesheet_data(self, ds_url='/frmStudentDatesheet.aspx'):
+        """Datesheet: simple GET + parse (WebForms pattern).
+        Returns: {'ok': bool, 'html': str, 'debug': dict}
+        """
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        debug = {}
+        full_url = urljoin(BASE, ds_url)
+        
+        r = self.s.get(full_url, headers={'Referer': urljoin(BASE, '/StudentHome.aspx')}, timeout=30)
+        debug['get_status'] = r.status_code
+        debug['get_len'] = len(r.text)
+        if r.status_code != 200:
+            debug['error'] = f'HTTP {r.status_code}'
+            return {'ok': False, 'debug': debug}
+        if 'UIMS Error' in r.text:
+            debug['error'] = 'UIMS Error'
+            return {'ok': False, 'debug': debug}
+        
+        # Check if datesheet table exists
+        soup = BeautifulSoup(r.text, 'html.parser')
+        has_table = bool(soup.find('table'))
+        debug['has_table'] = has_table
+        debug['method'] = 'direct_get'
+        return {'ok': True, 'html': r.text, 'debug': debug}
+
+    def get_leave_data(self, leave_url, leave_type='duty'):
+        """Leave history: simple GET + parse (WebForms pattern).
+        leave_url: e.g. '/frmStudentApplyDutyLeave.aspx'
+        Returns: {'ok': bool, 'html': str, 'debug': dict}
+        """
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        debug = {'leave_type': leave_type}
+        full_url = urljoin(BASE, leave_url)
+        
+        r = self.s.get(full_url, headers={'Referer': urljoin(BASE, '/StudentHome.aspx')}, timeout=30)
+        debug['get_status'] = r.status_code
+        debug['get_len'] = len(r.text)
+        if r.status_code != 200:
+            debug['error'] = f'HTTP {r.status_code}'
+            return {'ok': False, 'debug': debug}
+        if 'UIMS Error' in r.text:
+            debug['error'] = 'UIMS Error'
+            return {'ok': False, 'debug': debug}
+        
+        soup = BeautifulSoup(r.text, 'html.parser')
+        has_table = bool(soup.find('table'))
+        debug['has_table'] = has_table
+        debug['method'] = 'direct_get'
+        return {'ok': True, 'html': r.text, 'debug': debug}
