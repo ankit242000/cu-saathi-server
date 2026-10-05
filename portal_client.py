@@ -789,3 +789,52 @@ class PortalClient:
         debug['has_table'] = has_table
         debug['method'] = 'direct_get'
         return {'ok': True, 'html': r.text, 'debug': debug}
+
+    def replay_dashboard_webmethods(self):
+        """Dashboard ke WebMethod AJAX calls replay karo taaki session state initialize ho.
+        Ye calls browser dashboard load par karta hai. Inke bina inner pages UIMS Error dete hain.
+        Returns: {'ok': bool, 'methods_ok': int, 'debug': dict}
+        """
+        from urllib.parse import urljoin
+        import json
+        debug = {}
+        methods_ok = 0
+        
+        # Student WebMethods jo dashboard load par call hote hain
+        webmethods = [
+            'LoadPendingNotifications',
+            'DisplayAnnouncements', 
+            'DisplayStudentMyMessages',
+            'LoadRecentMenuLinks',
+            'DisplayPopup',
+            'DisplaySubjectDetails',
+        ]
+        
+        base = urljoin(BASE, '/StudentHome.aspx')
+        
+        for method in webmethods:
+            try:
+                url = f"{base}/{method}"
+                # WebMethod POST: JSON body, special content-type
+                r = self.s.post(url,
+                    data='{}',
+                    headers={
+                        'Content-Type': 'application/json; charset=utf-8',
+                        'Accept': 'application/json',
+                        'Referer': base,
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    timeout=15)
+                debug[method] = {
+                    'status': r.status_code,
+                    'len': len(r.text),
+                    'has_d': '"d"' in r.text[:100],
+                }
+                if r.status_code == 200 and '"d"' in r.text:
+                    methods_ok += 1
+            except Exception as e:
+                debug[method] = {'error': str(e)[:50]}
+        
+        debug['methods_ok'] = methods_ok
+        debug['total'] = len(webmethods)
+        return {'ok': methods_ok > 0, 'methods_ok': methods_ok, 'debug': debug}
