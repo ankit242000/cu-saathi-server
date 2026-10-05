@@ -289,12 +289,21 @@ def get_data(student_id):
         if profile and (profile.get('name') or profile.get('uid')):
             data['profile'] = profile
 
-    # Timetable
-    tt = _fetch_with_fallback('timetable', menu_urls['timetable'], 'frmMyTimeTable.aspx', dashboard_html)
-    if tt['ok']:
-        slots = parse_timetable(tt['html'])
+    # Timetable — NEW: ReportViewer API pattern (Aug-2026 scraper)
+    tt_result = client.get_timetable_data(menu_urls['timetable'])
+    if debug_mode:
+        page_debug['timetable_api'] = tt_result.get('debug', {})
+    if tt_result['ok']:
+        slots = parse_timetable(tt_result['html'])
         if slots:
             data['timetable'] = slots
+    else:
+        # Fallback: old method
+        tt = _fetch_with_fallback('timetable', menu_urls['timetable'], 'frmMyTimeTable.aspx', dashboard_html)
+        if tt['ok']:
+            slots = parse_timetable(tt['html'])
+            if slots:
+                data['timetable'] = slots
 
     # Datesheet
     ds = _fetch_with_fallback('datesheet', menu_urls['datesheet'], 'frmStudentDatesheet.aspx', dashboard_html)
@@ -315,12 +324,33 @@ def get_data(student_id):
     if leaves:
         data['leaves'] = leaves
 
-    # Marks
-    mk = _fetch_with_fallback('marks', menu_urls['marks'], 'frmStudentMarksView.aspx', dashboard_html)
-    if mk['ok']:
-        marks = parse_marks(mk['html'])
-        if marks:
-            data['marks'] = marks
+    # Marks — NEW: Session iteration API pattern (Aug-2026 scraper)
+    mk_result = client.get_marks_all_sessions(menu_urls['marks'])
+    if debug_mode:
+        page_debug['marks_api'] = mk_result.get('debug', {})
+    if mk_result['ok']:
+        # Har session ka HTML parse karo
+        all_marks = {}
+        for sess_val, sess_html in mk_result.get('data', {}).items():
+            subjects = parse_marks(sess_html)
+            if subjects:
+                # Session name dhoondho
+                sess_name = sess_val
+                for s in mk_result.get('sessions', []):
+                    if s['value'] == sess_val:
+                        sess_name = s['name']
+                        break
+                all_marks[sess_name] = subjects
+        if all_marks:
+            data['marks'] = all_marks
+            data['marks_sessions'] = mk_result.get('sessions', [])
+    else:
+        # Fallback: old method (single page)
+        mk = _fetch_with_fallback('marks', menu_urls['marks'], 'frmStudentMarksView.aspx', dashboard_html)
+        if mk['ok']:
+            marks = parse_marks(mk['html'])
+            if marks:
+                data['marks'] = marks
 
     # Notices — dashboard se announcements
     if d['ok']:
