@@ -394,6 +394,8 @@ class PortalClient:
                     all_links.append(txt)
             debug_info['menu_link_count'] = len(all_links)
             debug_info['menu_links_sample'] = all_links[:20]
+            debug_info['total_a_tags'] = len(soup.find_all('a'))
+            debug_info['search_pattern'] = link_text[:50]
         
         # Menu link dhoondho: pehle text se, phir URL pattern se
         # link_text URL fragment bhi ho sakta hai (e.g. 'frmMyTimeTable.aspx')
@@ -427,7 +429,20 @@ class PortalClient:
             # Regular link hai, direct GET karo
             if debug_info is not None:
                 debug_info['nav_method'] = 'direct_href'
+                debug_info['direct_href'] = direct_href[:100]
             return self.get_page(direct_href)
+        
+        # Fallback: onclick handlers me __doPostBack dhoondho
+        if not event_target and not direct_href:
+            for tag in soup.find_all(attrs={'onclick': True}):
+                onclick = tag.get('onclick', '')
+                if link_text.lower() in onclick.lower() or 'dopostback' in onclick.lower():
+                    m = re.search(r"__doPostBack\('([^']+)'", onclick, re.IGNORECASE)
+                    if m:
+                        event_target = m.group(1)
+                        if debug_info is not None:
+                            debug_info['found_via'] = 'onclick'
+                        break
         
         if not event_target:
             if debug_info is not None:
@@ -437,18 +452,33 @@ class PortalClient:
         if debug_info is not None:
             debug_info['nav_method'] = 'postback'
         
-        # Dashboard ka ViewState nikalo
+        # Dashboard ka ViewState nikalo (saare hidden fields)
         vs = soup.find('input', {'name': '__VIEWSTATE'})
         ev = soup.find('input', {'name': '__EVENTVALIDATION'})
+        vsg = soup.find('input', {'name': '__VIEWSTATEGENERATOR'})
         viewstate = vs.get('value', '') if vs else ''
         eventvalidation = ev.get('value', '') if ev else ''
+        viewstategenerator = vsg.get('value', '') if vsg else ''
         
-        # Postback karo
+        if debug_info is not None:
+            debug_info['has_viewstate'] = bool(viewstate)
+            debug_info['has_eventvalidation'] = bool(eventvalidation)
+            debug_info['has_viewstategenerator'] = bool(viewstategenerator)
+            debug_info['event_target'] = event_target[:50] if event_target else ''
+        
+        # Postback karo (saare required fields ke saath)
         data = {
             '__EVENTTARGET': event_target,
             '__EVENTARGUMENT': '',
             '__VIEWSTATE': viewstate,
+            '__VIEWSTATEGENERATOR': viewstategenerator,
             '__EVENTVALIDATION': eventvalidation,
+            '__LASTFOCUS': '',
         }
-        r = self.s.post(urljoin(BASE, '/StudentHome.aspx'), data=data, timeout=30)
+        # Form action URL nikalo (hardcoded nahi!)
+        form = soup.find('form')
+        post_url = form.get('action', '/StudentHome.aspx') if form else '/StudentHome.aspx'
+        if debug_info is not None:
+            debug_info['post_url'] = post_url[:100]
+        r = self.s.post(urljoin(BASE, post_url), data=data, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
