@@ -221,6 +221,13 @@ def get_data(student_id):
     _page_info('dashboard', d)
     dashboard_html = d['html'] if d['ok'] else ''
 
+    # NEW: Dashboard WebMethods replay karo (session state initialize ke liye)
+    # Browser ye AJAX calls karta hai; inke bina inner pages UIMS Error dete hain
+    if d['ok']:
+        wm_result = client.replay_dashboard_webmethods()
+        if debug_mode:
+            page_debug['webmethods'] = wm_result.get('debug', {})
+
     # Saare menu URLs dashboard se nikalo (exact hrefs)
     menu_urls = {
         'attendance': '/frmStudentCourseWiseAttendanceSummary.aspx',
