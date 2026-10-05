@@ -482,3 +482,258 @@ class PortalClient:
             debug_info['post_url'] = post_url[:100]
         r = self.s.post(urljoin(BASE, post_url), data=data, timeout=30)
         return {'ok': r.status_code == 200, 'html': r.text, 'status': r.status_code}
+
+    def get_attendance_json(self, att_html, att_url):
+        """TRIAL: JSON PageMethod se attendance lao.
+        att_html: attendance page ka HTML
+        att_url: attendance page ka URL
+        Returns: {'ok': bool, 'data': list, 'debug': dict}
+        """
+        import re
+        import json
+        debug = {}
+        
+        # report_id nikalo: getReport('...')
+        m = re.search(r"getReport\('([^']+)'\)", att_html)
+        if not m:
+            debug['error'] = 'report_id not found'
+            return {'ok': False, 'debug': debug}
+        report_id = m.group(1)
+        debug['report_id_found'] = True
+        
+        # session nikalo: CurrentSession(...)
+        m2 = re.search(r"CurrentSession\(['\"]([^'\"]+)['\"]\)", att_html)
+        if not m2:
+            # Alternative pattern
+            m2 = re.search(r"CurrentSession\(([^)]+)\)", att_html)
+        session_val = m2.group(1).strip("'\"") if m2 else ""
+        debug['session_found'] = bool(session_val)
+        
+        # JSON POST karo
+        post_url = att_url.rsplit('/', 1)[0] + '/frmStudentCourseWiseAttendanceSummary.aspx/GetReport'
+        # Actually att_url already has the page, just append /GetReport
+        if '/GetReport' not in att_url:
+            # att_url is like https://.../frmStudentCourseWiseAttendanceSummary.aspx?type=...
+            # We need base page URL without query
+            base_page = att_url.split('?')[0]
+            post_url = base_page + '/GetReport'
+        else:
+            post_url = att_url
+            
+        debug['post_url'] = post_url[:100]
+        
+        try:
+            r = self.s.post(
+                post_url,
+                json={'report_id': report_id, 'session': session_val},
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+            debug['http_status'] = r.status_code
+            if r.status_code != 200:
+                debug['error'] = f'HTTP {r.status_code}'
+                return {'ok': False, 'debug': debug}
+            
+            # Response me "d" key me JSON string hai
+            resp = r.json()
+            if 'd' not in resp:
+                debug['error'] = 'no d key in response'
+                debug['resp_keys'] = list(resp.keys())[:5]
+                return {'ok': False, 'debug': debug}
+            
+            data_str = resp['d']
+            data = json.loads(data_str) if isinstance(data_str, str) else data_str
+            debug['rows'] = len(data) if isinstance(data, list) else 0
+            return {'ok': True, 'data': data, 'debug': debug}
+            
+        except Exception as e:
+            debug['error'] = str(e)[:100]
+            return {'ok': False, 'debug': debug}
+
+    def get_marks_all_sessions(self, marks_url='/frmStudentMarksView.aspx'):
+        """Marks: saare sessions ke liye marks nikalo (Aug-2026 scraper pattern).
+        1. GET marks page
+        2. Dropdown se sessions nikalo
+        3. Har session ke liye: fresh GET (VIEWSTATE) -> POST with dropdown value
+        Returns: {'ok': bool, 'sessions': list, 'data': dict, 'debug': dict}
+        """
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        debug = {}
+        full_url = urljoin(BASE, marks_url)
+        
+        # Step 1: GET marks page
+        r = self.s.get(full_url, headers={'Referer': urljoin(BASE, '/StudentHome.aspx')}, timeout=30)
+        debug['get_status'] = r.status_code
+        debug['get_len'] = len(r.text)
+        if r.status_code != 200 or len(r.text) < 500:
+            debug['error'] = 'marks page fetch failed'
+            return {'ok': False, 'debug': debug}
+        if 'UIMS Error' in r.text:
+            debug['error'] = 'UIMS Error on marks page'
+            return {'ok': False, 'debug': debug}
+        
+        soup = BeautifulSoup(r.text, 'html.parser')
+        select_tag = soup.find('select', {'name': 'ctl00$ContentPlaceHolder1$wucStudentMarksView$ddlCAndPSession'})
+        if not select_tag:
+            debug['error'] = 'session dropdown not found'
+            return {'ok': False, 'debug': debug}
+        
+        sessions = []
+        for opt in select_tag.find_all('option'):
+            sessions.append({
+                'value': opt.get('value', ''),
+                'name': opt.get_text(strip=True),
+                'isCurrent': opt.get('selected') is not None,
+            })
+        debug['session_count'] = len(sessions)
+        if not sessions:
+            debug['error'] = 'no sessions in dropdown'
+            return {'ok': False, 'debug': debug}
+        
+        # Step 2: Har session ke liye marks nikalo
+        marks_data = {}
+        for sess in sessions:
+            try:
+                # Fresh GET for VIEWSTATE
+                fr = self.s.get(full_url, headers={'Referer': full_url}, timeout=30)
+                fsoup = BeautifulSoup(fr.text, 'html.parser')
+                vs = fsoup.find('input', {'name': '__VIEWSTATE'})
+                ev = fsoup.find('input', {'name': '__EVENTVALIDATION'})
+                vsg = fsoup.find('input', {'name': '__VIEWSTATEGENERATOR'})
+                
+                form_data = {
+                    'ctl00$ContentPlaceHolder1$wucStudentMarksView$ddlCAndPSession': sess['value'],
+                }
+                if vs: form_data['__VIEWSTATE'] = vs.get('value', '')
+                if ev: form_data['__EVENTVALIDATION'] = ev.get('value', '')
+                if vsg: form_data['__VIEWSTATEGENERATOR'] = vsg.get('value', '')
+                form_data['__EVENTTARGET'] = ''
+                form_data['__EVENTARGUMENT'] = ''
+                
+                pr = self.s.post(full_url, data=form_data,
+                    headers={'Referer': full_url, 'Content-Type': 'application/x-www-form-urlencoded'},
+                    timeout=30)
+                if pr.status_code == 200 and 'UIMS Error' not in pr.text:
+                    marks_data[sess['value']] = pr.text
+            except Exception as e:
+                debug[f'session_{sess["value"]}_error'] = str(e)[:50]
+        
+        debug['fetched_sessions'] = len(marks_data)
+        return {'ok': True, 'sessions': sessions, 'data': marks_data, 'debug': debug}
+
+    def get_timetable_data(self, tt_url='/frmMyTimeTable.aspx'):
+        """Timetable: ReportViewer pattern (Aug-2026 scraper).
+        1. GET timetable page
+        2. Agar #grdMain nahi mila to POST with EVENTTARGET
+        Returns: {'ok': bool, 'html': str, 'debug': dict}
+        """
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        debug = {}
+        full_url = urljoin(BASE, tt_url)
+        
+        r = self.s.get(full_url, headers={'Referer': urljoin(BASE, '/StudentHome.aspx')}, timeout=30)
+        debug['get_status'] = r.status_code
+        debug['get_len'] = len(r.text)
+        if r.status_code != 200:
+            debug['error'] = f'HTTP {r.status_code}'
+            return {'ok': False, 'debug': debug}
+        if 'UIMS Error' in r.text:
+            debug['error'] = 'UIMS Error'
+            return {'ok': False, 'debug': debug}
+        
+        soup = BeautifulSoup(r.text, 'html.parser')
+        if soup.find(id='grdMain'):
+            debug['method'] = 'direct_get'
+            return {'ok': True, 'html': r.text, 'debug': debug}
+        
+        # POST with EVENTTARGET for ReportViewer
+        vs = soup.find('input', {'name': '__VIEWSTATE'})
+        if vs and vs.get('value'):
+            post_data = {
+                '__VIEWSTATE': vs.get('value', ''),
+                '__EVENTTARGET': 'ctl00$ContentPlaceHolder1$ReportViewer1$ctl09$Reserved_AsyncLoadTarget',
+                '__EVENTARGUMENT': '',
+            }
+            vsg = soup.find('input', {'name': '__VIEWSTATEGENERATOR'})
+            ev = soup.find('input', {'name': '__EVENTVALIDATION'})
+            if vsg: post_data['__VIEWSTATEGENERATOR'] = vsg.get('value', '')
+            if ev: post_data['__EVENTVALIDATION'] = ev.get('value', '')
+            
+            pr = self.s.post(full_url, data=post_data,
+                headers={'Referer': full_url, 'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=30)
+            debug['post_status'] = pr.status_code
+            debug['post_len'] = len(pr.text)
+            if pr.status_code == 200 and 'UIMS Error' not in pr.text:
+                psoup = BeautifulSoup(pr.text, 'html.parser')
+                if psoup.find(id='grdMain'):
+                    debug['method'] = 'postback'
+                    return {'ok': True, 'html': pr.text, 'debug': debug}
+        
+        debug['error'] = 'grdMain not found'
+        return {'ok': False, 'debug': debug}
+
+    def get_attendance_report_json(self, att_html, att_url):
+        """Attendance JSON API - CORRECT format from Aug-2026 scraper.
+        POST /frmStudentCourseWiseAttendanceSummary.aspx/GetReport
+        Body: {UID:'<reportId>',Session:'<sessionId>'}
+        Returns: {'ok': bool, 'data': list, 'debug': dict}
+        """
+        import re
+        import json
+        from urllib.parse import urljoin
+        debug = {}
+        
+        # report_id: getReport('...') ya similar pattern
+        m = re.search(r"getReport\('([^']+)'\)", att_html)
+        if not m:
+            m = re.search(r"['\"]UID['\"]\s*:\s*['\"]([^'\"]+)['\"]", att_html)
+        if not m:
+            debug['error'] = 'report_id not found in HTML'
+            return {'ok': False, 'debug': debug}
+        report_id = m.group(1)
+        debug['report_id_len'] = len(report_id)
+        
+        # session_id: CurrentSession('...') ya similar
+        m2 = re.search(r"CurrentSession\(['\"]([^'\"]+)['\"]\)", att_html)
+        if not m2:
+            m2 = re.search(r"['\"]Session['\"]\s*:\s*['\"]([^'\"]+)['\"]", att_html)
+        session_val = m2.group(1) if m2 else ""
+        debug['session_found'] = bool(session_val)
+        
+        # POST URL
+        base_page = att_url.split('?')[0] if '?' in att_url else att_url
+        if not base_page.startswith('http'):
+            base_page = urljoin(BASE, base_page)
+        post_url = base_page + '/GetReport'
+        debug['post_url'] = post_url[:80]
+        
+        # CORRECT JSON format: {UID:'...',Session:'...'}
+        json_body = "{UID:'%s',Session:'%s'}" % (report_id, session_val)
+        
+        try:
+            r = self.s.post(post_url, data=json_body,
+                headers={'Content-Type': 'application/json; charset=utf-8',
+                         'Referer': base_page},
+                timeout=30)
+            debug['http_status'] = r.status_code
+            if r.status_code != 200:
+                debug['error'] = f'HTTP {r.status_code}'
+                debug['resp_preview'] = r.text[:200]
+                return {'ok': False, 'debug': debug}
+            
+            resp = r.json()
+            if 'd' not in resp:
+                debug['error'] = 'no d key'
+                debug['resp_keys'] = list(resp.keys())[:5]
+                return {'ok': False, 'debug': debug}
+            
+            data_str = resp['d']
+            data = json.loads(data_str) if isinstance(data_str, str) else data_str
+            debug['rows'] = len(data) if isinstance(data, list) else 0
+            return {'ok': True, 'data': data, 'debug': debug}
+        except Exception as e:
+            debug['error'] = str(e)[:100]
+            return {'ok': False, 'debug': debug}
